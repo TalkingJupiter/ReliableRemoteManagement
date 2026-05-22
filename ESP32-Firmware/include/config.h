@@ -83,26 +83,26 @@
 
 // Telemetry destination (Radxa)
 #ifndef RADXA_UDP_PORT
-  #define RADXA_UDP_PORT 9000
+  #define RADXA_UDP_PORT 5005
 #endif
 
 // If you don't define RADXA_IP_* we will default to 192.168.1.10
 #ifndef RADXA_IP_A
-  #define RADXA_IP_A 192
+  #define RADXA_IP_A 169
 #endif
 #ifndef RADXA_IP_B
-  #define RADXA_IP_B 168
+  #define RADXA_IP_B 254
 #endif
 #ifndef RADXA_IP_C
-  #define RADXA_IP_C 1
+  #define RADXA_IP_C 184
 #endif
 #ifndef RADXA_IP_D
-  #define RADXA_IP_D 10
+  #define RADXA_IP_D 20
 #endif
 
 // How often to send the JSON payload.
 #ifndef TELEMETRY_SEND_MS
-  #define TELEMETRY_SEND_MS 1000
+  #define TELEMETRY_SEND_MS 5000
 #endif
 
 // ------------------

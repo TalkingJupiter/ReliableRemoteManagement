@@ -102,7 +102,7 @@ static void buildTelemetryJson(char* out, size_t outSz,
     "      \"kind\": \"sensors\",\n"
     "      \"buses\": [\n"
     "        {\n"
-    "          \"bus\": \"cool\",\n"
+    "          \"bus\": \"inlet\",\n"
     "          \"temperatures_c\": %s\n"
     "        },\n"
     "        {\n"
@@ -144,7 +144,10 @@ void setup() {
   tempBus.begin(ONE_WIRE_BUS_COOL, ONE_WIRE_BUS_EXHAUST);
 
   // Start Ethernet telemetry
-  net.begin();
+  bool netOK = net.begin();
+  if(!netOK){
+    Serial.println("[SETUP NET] Ethernet init failed or link is down");
+  }
 
   Serial.println("Heartbeat + TemperatureBus started\n");
 
@@ -234,7 +237,9 @@ void loop() {
 
     const bool ok = net.sendUDP(json);
     if (!ok) {
-      Serial.println("[NET] Telemetry send failed (link down or UDP error)");
+      Serial.println("[NETWORK] Telemetry send failed (link down or UDP error)");
+    } else {
+      Serial.println("[NETWORK] Telemetry Sent Successfully");
     }
   }
 
