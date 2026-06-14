@@ -12,6 +12,25 @@ TelemetrySender net;
 static inline bool isControllerA() { return DEVICE_ID == 'A' || DEVICE_ID == 65; }
 static inline bool isControllerB() { return DEVICE_ID == 'B' || DEVICE_ID == 66; }
 
+void heartbeatTask(void *param){
+  uint32_t lastSend = 0;
+  
+  while(true){
+    const uint32_t now = millis();
+
+    //Always read the incoming data
+    hb.tick();
+
+    //Send own heartbeat periodically
+    if((uint32_t)(now - lastSend) >= HB_SEND_MS){
+      lastSend = now;
+      hb.send((char)DEVICE_ID, now);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
+
 static void printTemps() {
   Serial.printf(
     "[TEMP] inlet: %.2f %.2f %.2f | exhaust: %.2f %.2f %.2f\n",
@@ -42,6 +61,8 @@ static void appendTempArray(char* out, size_t outSz, const float vals[Temperatur
   for (uint8_t i = 0; i < TemperatureBus::SENSORS_PER_BUS; i++) {
     if (i) append(", ");
     if (isnan(vals[i])) {
+      append("null");
+    } else if (vals[i] == 85.0f) {
       append("null");
     } else {
       char b[16];
@@ -137,8 +158,9 @@ void setup() {
   Serial.println();
   Serial.printf("Booting Controller %c\n", (char)DEVICE_ID);
 
-  // Start heartbeat UART link
+  // Start heartbeat UART link and create the Heartbeat task
   hb.begin(HB_UART_RX_PIN, HB_UART_TX_PIN, HB_UART_BAUD);
+  xTaskCreatePinnedToCore(heartbeatTask, "Heartbeat", 4096, nullptr, 3, nullptr, 1);
 
   // Start temperature buses (intake + exhaust)
   tempBus.begin(ONE_WIRE_BUS_COOL, ONE_WIRE_BUS_EXHAUST);
@@ -160,15 +182,18 @@ void setup() {
 void loop() {
   const uint32_t now = millis();
 
+  /*
   // 1) Always parse RX
-  hb.tick();
+  // hb.tick();
 
   // 2) Send heartbeat periodically
-  static uint32_t lastSend = 0;
-  if ((uint32_t)(now - lastSend) >= (uint32_t)HB_SEND_MS) {
-    lastSend = now;
-    hb.send((char)DEVICE_ID, now);
-  }
+  // static uint32_t lastSend = 0;
+  // if ((uint32_t)(now - lastSend) >= (uint32_t)HB_SEND_MS) {
+  //   lastSend = now;
+  //   hb.send((char)DEVICE_ID, now);
+  // }
+*/
+
 
   // 3) Temperature sampling (tick exactly once per loop)
   tempBus.tick(now);
@@ -290,5 +315,5 @@ void loop() {
     }
   }
 
-  delay(1);
+  vTaskDelay(pdMS_TO_TICKS(10));
 }
