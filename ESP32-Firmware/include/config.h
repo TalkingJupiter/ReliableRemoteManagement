@@ -81,6 +81,12 @@
   #define W5500_MOSI_PIN 23
 #endif
 
+// Optional. Set to an ESP32 GPIO if the W5500 RST pin is wired to firmware control.
+// Leave as -1 if RST is tied high externally or the module handles reset itself.
+#ifndef W5500_RST_PIN
+  #define W5500_RST_PIN 2
+#endif
+
 // Telemetry destination (Radxa)
 #ifndef RADXA_UDP_PORT
   #define RADXA_UDP_PORT 5005
@@ -88,16 +94,16 @@
 
 // If you don't define RADXA_IP_* we will default to 192.168.1.10
 #ifndef RADXA_IP_A
-  #define RADXA_IP_A 169
+  #define RADXA_IP_A 192
 #endif
 #ifndef RADXA_IP_B
-  #define RADXA_IP_B 254
+  #define RADXA_IP_B 168
 #endif
 #ifndef RADXA_IP_C
-  #define RADXA_IP_C 184
+  #define RADXA_IP_C 50
 #endif
 #ifndef RADXA_IP_D
-  #define RADXA_IP_D 20
+  #define RADXA_IP_D 115
 #endif
 
 // How often to send the JSON payload.
