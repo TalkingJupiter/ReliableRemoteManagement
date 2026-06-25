@@ -93,6 +93,10 @@ bool TelemetrySender::begin() {
   Serial.print("[NET] MAC=");
   printMac(ethMac);
   Serial.println();
+
+  Serial.println("[NET] Starting DHCP...");
+  const int dhcpResult = Ethernet.begin(ethMac);
+
   Serial.print("[NET] Hardware=");
   const EthernetHardwareStatus hardwareStatus = Ethernet.hardwareStatus();
   Serial.println(hardwareStatusName(hardwareStatus));
@@ -102,10 +106,10 @@ bool TelemetrySender::begin() {
     return false;
   }
 
-  Serial.print("[NET] Link before DHCP=");
+  Serial.print("[NET] Link after init=");
   Serial.println(linkStatusName(Ethernet.linkStatus()));
 
-  if (Ethernet.begin(ethMac) == 0) {
+  if (dhcpResult == 0) {
     gEthUp = false;
     Serial.println("[NET] DHCP failed. Telemetry will not send.");
     return false;
