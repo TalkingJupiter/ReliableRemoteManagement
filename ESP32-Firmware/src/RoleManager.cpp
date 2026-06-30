@@ -1,5 +1,5 @@
 #include "RoleManager.h"
-#include "config.h"
+#include "DeviceConfig.h"
 #include "TimeUtil.h"
 
 RoleManager::RoleManager(Heartbeat& hb, RelayControl& relays, char myId) : _hb(hb), _relays(relays), _myId(myId){}

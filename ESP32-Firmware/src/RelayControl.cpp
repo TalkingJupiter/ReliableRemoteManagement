@@ -1,5 +1,5 @@
 #include "RelayControl.h"
-#include "config.h"
+#include "DeviceConfig.h"
 
 void RelayControl::begin(int relayAPin, int relayBPin, bool activeLow){
     _pinA = relayAPin;

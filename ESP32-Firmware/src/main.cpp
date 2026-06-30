@@ -1,5 +1,6 @@
 #include <Arduino.h>
-#include "config.h"
+#include "DeviceConfig.h"
+#include "HostConfig.h"
 #include "Heartbeat.h"
 #include "TemperatureBus.h"
 #include "TelemetrySender.h"
@@ -82,7 +83,6 @@ static void buildTelemetryJson(char* out, size_t outSz,
                                const float exhaust[TemperatureBus::SENSORS_PER_BUS],
                                bool failoverOccurred,
                                const char* failoverDetails) {
-  // NOTE: Kept close to the JSON structure shown in the image.
   // We avoid ArduinoJson to keep dependencies minimal.
   if (!out || outSz == 0) return;
   out[0] = '\0';
@@ -159,11 +159,11 @@ void setup() {
   Serial.printf("Booting Controller %c\n", (char)DEVICE_ID);
 
   // Start heartbeat UART link and create the Heartbeat task
-  hb.begin(HB_UART_RX_PIN, HB_UART_TX_PIN, HB_UART_BAUD);
+  hb.begin(HB_RX_PIN, HB_TX_PIN, HB_UART_BAUD);
   xTaskCreatePinnedToCore(heartbeatTask, "Heartbeat", 4096, nullptr, 3, nullptr, 1);
 
   // Start temperature buses (intake + exhaust)
-  tempBus.begin(ONE_WIRE_BUS_COOL, ONE_WIRE_BUS_EXHAUST);
+  tempBus.begin(ONE_WIRE_BUS_INTAKE, ONE_WIRE_BUS_EXHAUST);
 
   // Start Ethernet telemetry
   bool netOK = net.begin();
@@ -173,7 +173,7 @@ void setup() {
 
   Serial.println("Heartbeat + TemperatureBus started\n");
 
-  // Optional sanity check (keep if you want)
+  // Optional sanity check
   Serial.printf("[TEMP:init] intakeN=%u exhaustN=%u\n",
                 tempBus.intakeDeviceCount(),
                 tempBus.exhaustDeviceCount());
@@ -182,18 +182,7 @@ void setup() {
 void loop() {
   const uint32_t now = millis();
 
-  /*
-  // 1) Always parse RX
-  // hb.tick();
-
-  // 2) Send heartbeat periodically
-  // static uint32_t lastSend = 0;
-  // if ((uint32_t)(now - lastSend) >= (uint32_t)HB_SEND_MS) {
-  //   lastSend = now;
-  //   hb.send((char)DEVICE_ID, now);
-  // }
-*/
-
+  net.loop();
 
   // 3) Temperature sampling (tick exactly once per loop)
   tempBus.tick(now);
@@ -260,9 +249,9 @@ void loop() {
                        failoverOccurred,
                        failoverDetails);
 
-    const bool ok = net.sendUDP(json);
+    const bool ok = net.sendMQTT(json);
     if (!ok) {
-      Serial.println("[NETWORK] Telemetry send failed (link down or UDP error)");
+      Serial.println("[NETWORK] Telemetry send failed (link down or MQTT error)");
     } else {
       Serial.println("[NETWORK] Telemetry Sent Successfully");
     }
