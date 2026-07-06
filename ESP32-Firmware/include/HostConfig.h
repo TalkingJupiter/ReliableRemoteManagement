@@ -28,3 +28,7 @@ HOST Conf
 #ifndef BASE_TOPIC
     #define BASE_TOPIC "repacss"
 #endif
+
+#ifndef HELLO_INTERVAL_MS
+    #define HELLO_INTERVAL_MS 60000
+#endif

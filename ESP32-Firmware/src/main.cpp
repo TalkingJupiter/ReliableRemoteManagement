@@ -183,6 +183,7 @@ void loop() {
   const uint32_t now = millis();
 
   net.loop();
+  net.hello();
 
   // 3) Temperature sampling (tick exactly once per loop)
   tempBus.tick(now);

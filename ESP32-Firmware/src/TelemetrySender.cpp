@@ -1,6 +1,7 @@
 #include "TelemetrySender.h"
 #include "HostConfig.h"
 #include "DeviceConfig.h"
+#include "RuntimeConfig.h"
 
 #include <SPI.h>
 #include <Ethernet.h>
@@ -14,8 +15,11 @@ static EthernetClient ethClient;
 static bool gEthUp = false;
 static char gMacSafe[13] = {0};
 static char gClientId[32] = {0};
-static char gTelemetryTopic[80] = {0};
+static char gConfigTopic[80] = {0};
+static char gHelloTopic[80] = {0};
 static PubSubClient mqttClient(ethClient);
+
+static TelemetrySender* gself = nullptr;
 
 static IPAddress hostIP() {
   return IPAddress(HOST_IP_A, HOST_IP_B, HOST_IP_C, HOST_IP_D);
@@ -34,8 +38,8 @@ static void macAddrCompact(const byte mac[6], char* out, size_t outSz) {
 static void buildMqttIdentity(const byte mac[6]) {
   macAddrCompact(mac, gMacSafe, sizeof(gMacSafe));
   snprintf(gClientId, sizeof(gClientId), "%s-%s", BASE_TOPIC, gMacSafe);
-  snprintf(gTelemetryTopic, sizeof(gTelemetryTopic),
-           "%s/devices/%s/telemetry", BASE_TOPIC, gMacSafe);
+  snprintf(gHelloTopic, sizeof(gHelloTopic), "%s/devices/%s/hello", BASE_TOPIC, gMacSafe);
+  snprintf(gConfigTopic, sizeof(gConfigTopic), "%s/devices/%s/config", BASE_TOPIC, gMacSafe);         
 }
 
 static bool connectMqtt() {
@@ -53,8 +57,10 @@ static bool connectMqtt() {
                   gClientId, mqttClient.state());
     return false;
   }
-
+  
   Serial.printf("[MQTT] Connected as %s\n", gClientId);
+  mqttClient.subscribe(gConfigTopic); // TIP: Checking the connection might be a good idea
+  
   return true;
 }
 
@@ -91,6 +97,34 @@ static void resetW5500IfConfigured() {
   delay(250);
 }
 
+void onMqttMessage(char* topic, byte* payload, unsigned int lenght){
+  char json[1024];
+  if(lenght >= sizeof(json)){
+    Serial.printf("[MQTT] Config too large: %u bytes\n", lenght);
+    return;
+  }
+
+  memcpy(json, payload, lenght);
+  json[lenght] = '\0';
+
+  if(strcmp(topic, gConfigTopic) != 0){
+    Serial.printf("[MQTT] Ignoring message on %s\n", topic);
+    return;
+  }
+
+  RuntimeConfig cfg;
+  String err;
+  if(!parseRuntimeConfigJson(String(json), cfg, err)){
+    Serial.printf("[CONFIG] Rejected: %s\n", err.c_str());
+    return;
+  }
+
+  if(gself){
+    gself -> setConfig(cfg);
+    Serial.println("[CONFIG] Applied");
+  }
+}
+
 String TelemetrySender::deviceMacString() {
   uint8_t mac[6] = {0};
 
@@ -109,6 +143,7 @@ String TelemetrySender::deviceMacString() {
 // Bring up Ethernet and prepare the MQTT client.
 bool TelemetrySender::begin() {
   resetW5500IfConfigured();
+  gself = this;
 
   // Initialize SPI for W5500
   SPI.begin(W5500_SCK_PIN, W5500_MISO_PIN, W5500_MOSI_PIN, W5500_CS_PIN);
@@ -175,7 +210,9 @@ bool TelemetrySender::begin() {
     Serial.println("[MQTT] Setting up MQTT server");
     mqttClient.setServer(hostIP(), MQTT_PORT);
     mqttClient.setBufferSize(1024);
+    mqttClient.setCallback(onMqttMessage);
     connectMqtt();
+    
 
   } else {
     gEthUp = false;
@@ -198,16 +235,43 @@ bool TelemetrySender::isUp() const {
   return gEthUp;
 }
 
-bool TelemetrySender::sendMQTT(const char* jsonPayload){
-  if (!jsonPayload || !jsonPayload[0]) return false;
-  if (!isUp()) return false;
-  if (gTelemetryTopic[0] == '\0') return false;
-  if (!connectMqtt()) return false;
+void TelemetrySender::setConfig(const RuntimeConfig &cfg){
+  config_ = cfg;
+}
 
-  const bool published = mqttClient.publish(gTelemetryTopic, jsonPayload);
+
+bool TelemetrySender::hello(){
+  if(config_.configured) return false;
+  if(!isUp() || !connectMqtt()) return false;
+
+  uint32_t now = millis();
+  static uint32_t lastHelloMs = 0;
+  if(now - lastHelloMs < HELLO_INTERVAL_MS) return false;
+  lastHelloMs = now;
+
+  char payload[64];
+  snprintf(payload, sizeof(payload), "{\"message_type\":\"hello\",\"mac\":\"%s\"}", gMacSafe);
+  bool published = mqttClient.publish(gHelloTopic, payload);
+  if(!published){
+    Serial.printf("[HELLO] Publish failed, state=%d\n", mqttClient.state());
+  }
+
+  return published;
+}
+
+
+bool TelemetrySender::sendMQTT(const char* jsonPayload){
+  if (!isUp()) return false;
+  if (!jsonPayload || !jsonPayload[0]) return false;
+  if (config_.telemetryTopic[0] == '\0') return false;
+  if (!connectMqtt()) return false;
+  if(!config_.configured) return false;
+  if(!config_.enabled) return false;
+
+  const bool published = mqttClient.publish(config_.telemetryTopic.c_str(), jsonPayload);
   if (!published) {
     Serial.printf("[MQTT] Publish failed on %s, state=%d\n",
-                  gTelemetryTopic, mqttClient.state());
+                  config_.telemetryTopic.c_str(), mqttClient.state());
   }
   return published;
 }
