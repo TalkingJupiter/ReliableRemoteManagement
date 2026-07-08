@@ -41,6 +41,7 @@ static void printTemps() {
 }
 
 static void maybePrintTemps() {
+  if(tempBus.intakeDeviceCount() == 0 && tempBus.exhaustDeviceCount() == 0) return;
   if (tempBus.hasNewSample()) {
     tempBus.clearNewSampleFlag();
     printTemps();

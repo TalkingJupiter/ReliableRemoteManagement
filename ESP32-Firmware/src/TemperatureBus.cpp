@@ -72,6 +72,11 @@ bool TemperatureBus::scanBuses(){
                       _exhaustDeviceCount);
     }
 
+    if(_intakeDeviceCount == 0 && _exhaustDeviceCount == 0){
+        Serial.printf("[SENSOR BUS] NO device detected on both busses!\n");
+        return false;
+    }
+
     // If one side has 0 on early bring-up that's ok, but "ready()" will remain false
     // until we successfully read something on each bus.
     return true;
@@ -133,6 +138,7 @@ void TemperatureBus::readTemperatures(){
             tE = dtE->getTempCByIndex(i);
             if(tE <= -120.0f) tE = NAN;
         }
+        
 
         _intakeC[i]  = tI;
         _exhaustC[i] = tE;
