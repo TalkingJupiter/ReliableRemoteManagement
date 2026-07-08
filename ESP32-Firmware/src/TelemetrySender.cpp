@@ -252,6 +252,7 @@ bool TelemetrySender::hello(){
   char payload[64];
   snprintf(payload, sizeof(payload), "{\"message_type\":\"hello\",\"mac\":\"%s\"}", gMacSafe);
   bool published = mqttClient.publish(gHelloTopic, payload);
+  Serial.printf("[HELLO] Published to %s with a payload of %s\n", gHelloTopic, payload);
   if(!published){
     Serial.printf("[HELLO] Publish failed, state=%d\n", mqttClient.state());
   }
