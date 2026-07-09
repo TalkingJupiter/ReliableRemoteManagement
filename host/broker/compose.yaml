@@ -1,0 +1,18 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto
+    container_name: mosquitto
+    networks: [mqtt_net]
+    volumes:
+      - ./config:/mosquitto/config
+      - ./data:/mosquitto/data
+      - ./log:/mosquitto/log
+    ports:
+      - 1883:1883
+    stdin_open: true
+    tty: true
+
+networks:
+  mqtt_net:
+    external: false
+    name: repacss_mqtt
