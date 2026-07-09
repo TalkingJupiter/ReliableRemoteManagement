@@ -5,7 +5,9 @@ set -euo pipefail
 # Install Docker only if it is not already present.
 if ! command -v docker >/dev/null 2>&1; then
     echo "Installing Docker..."
-    curl -fsSL https://get.docker.com | sh
+    sudo dnf install -y dnf-plugins-core 
+    sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo 
+    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 else
     echo "Docker already installed, skipping"
 fi
