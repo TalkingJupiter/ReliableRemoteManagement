@@ -1,4 +1,4 @@
-import socket
+import os
 import json
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
@@ -15,11 +15,13 @@ DEVICE_REGISTRY = {
     }
 }
 
-def get_local_ip():
-    hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
+
+def is_enabled(mac: str, role: str):
+    if(role == "Primary"):
+        return True
     
-    return local_ip
+    return False
+
 
 def build_config(mac: str, device: dict) -> dict:
 # FUTURE: When a general system is working with DB and a dashboard implement a modifiable telemetry collect timing
@@ -31,7 +33,7 @@ def build_config(mac: str, device: dict) -> dict:
         "message_type": "config",
         "mac": mac,
         "configured": True,
-        "enabled": True, # Implement a new logic to receive if it is enabled or not
+        "enabled": is_enabled(mac, role),
         "rack_id": rack_id,
         "role": role
     }
@@ -39,7 +41,7 @@ def build_config(mac: str, device: dict) -> dict:
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
     print(f"[MQTT] Connected with reason: {reason_code}") # Convert to a log to register to docker log file
 
-    client.subscribe("repacss/device/+/hello", qos=1)
+    client.subscribe("repacss/devices/+/hello", qos=1)
 
 def on_message(client: mqtt.Client, userdata, msg):
     topic = msg.topic
@@ -74,8 +76,8 @@ def on_message(client: mqtt.Client, userdata, msg):
     client.publish(config_topic, json.dumps(config), qos=1, retain=False)
 
 
-BROKER_HOST = get_local_ip()
-BROKER_PORT = 1883 #TODO: Change this to get it from docker compose file from mosquitto container
+BROKER_HOST = os.environ.get("BROKER_HOST", "mosquitto")
+BROKER_PORT = int(os.environ.get("BROKER_PORT", "1883"))
 
 client = mqtt.Client(
     CallbackAPIVersion.VERSION2, 
@@ -86,3 +88,4 @@ client.on_connect = on_connect
 client.on_message = on_message
 
 client.connect(BROKER_HOST, BROKER_PORT)
+client.loop_forever()
