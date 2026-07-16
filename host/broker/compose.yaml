@@ -5,12 +5,15 @@ services:
     networks: [mqtt_net]
     volumes:
       - ./config:/mosquitto/config
-      - ./data:/mosquitto/data
+      - mosquitto_data:/mosquitto/data
       - ./log:/mosquitto/log
     ports:
       - 1883:1883
     stdin_open: true
     tty: true
+
+volumes:
+  mosquitto_data:
 
 networks:
   mqtt_net:
