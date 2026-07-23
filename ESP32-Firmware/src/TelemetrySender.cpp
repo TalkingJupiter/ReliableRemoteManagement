@@ -9,6 +9,7 @@
 
 #ifdef ESP32
   #include <esp_mac.h>
+  #include <esp_ota_ops.h>
 #endif
 
 static EthernetClient ethClient;
@@ -44,6 +45,40 @@ static void buildMqttIdentity(const byte mac[6]) {
   snprintf(gTelemetryTopic, sizeof(gTelemetryTopic), "%s/devices/%s/telemetry", BASE_TOPIC, gMacSafe);         
 }
 
+// --- OTA rollback safety net ---
+// The Arduino bootloader has CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y, so an
+// OTA'd image boots in PENDING_VERIFY and the bootloader auto-reverts on the
+// next reset unless the app confirms it. USB-flashed builds are not pending
+// and need no confirmation.
+
+static void logOtaState() {
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t st;
+  if (running && esp_ota_get_state_partition(running, &st) == ESP_OK) {
+    Serial.printf("[OTA] Running partition '%s', img_state=%d\n", running->label, (int)st);
+  } else if (running) {
+    Serial.printf("[OTA] Running partition '%s' (img_state unavailable)\n", running->label);
+  }
+}
+
+// Cancel a pending rollback once we are healthy (MQTT connected). Runs at most once.
+static void confirmAppValid() {
+  static bool confirmed = false;
+  if (confirmed) return;
+  confirmed = true;
+
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t st;
+  if (running && esp_ota_get_state_partition(running, &st) == ESP_OK &&
+      st == ESP_OTA_IMG_PENDING_VERIFY) {
+    esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    Serial.printf("[OTA] Pending image confirmed valid, rollback canceled: %s\n",
+                  esp_err_to_name(err));
+  } else {
+    Serial.println("[OTA] No pending image to confirm (normal boot)");
+  }
+}
+
 static bool connectMqtt() {
   if (gClientId[0] == '\0') {
     Serial.println("[MQTT] Client ID has not been initialized");
@@ -62,7 +97,10 @@ static bool connectMqtt() {
   
   Serial.printf("[MQTT] Connected as %s\n", gClientId);
   mqttClient.subscribe(gConfigTopic); // TIP: Checking the connection might be a good idea
-  
+
+  // MQTT connected == healthy: confirm the running image so any pending rollback is canceled.
+  confirmAppValid();
+
   return true;
 }
 
@@ -146,6 +184,8 @@ String TelemetrySender::deviceMacString() {
 bool TelemetrySender::begin() {
   resetW5500IfConfigured();
   gself = this;
+
+  logOtaState();  // report which partition we booted from and its OTA image state
 
   // Initialize SPI for W5500
   SPI.begin(W5500_SCK_PIN, W5500_MISO_PIN, W5500_MOSI_PIN, W5500_CS_PIN);
