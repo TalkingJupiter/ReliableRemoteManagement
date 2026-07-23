@@ -10,8 +10,8 @@ Heartbeat hb(HBSerial);
 TemperatureBus tempBus;
 TelemetrySender net;
 
-static inline bool isControllerA() { return DEVICE_ID == 'A' || DEVICE_ID == 65; }
-static inline bool isControllerB() { return DEVICE_ID == 'B' || DEVICE_ID == 66; }
+static inline bool isControllerPrimary() { return net.isConfigured() && net.role() == ControllerRole::Primary; }
+static inline bool isControllerStandby() { return net.isConfigured() && net.role() == ControllerRole::Standby; }
 
 void heartbeatTask(void *param){
   uint32_t lastSend = 0;
@@ -25,7 +25,7 @@ void heartbeatTask(void *param){
     //Send own heartbeat periodically
     if((uint32_t)(now - lastSend) >= HB_SEND_MS){
       lastSend = now;
-      hb.send((char)DEVICE_ID, now);
+      hb.send(now);
     }
 
     vTaskDelay(pdMS_TO_TICKS(5));
@@ -78,33 +78,31 @@ static void appendTempArray(char* out, size_t outSz, const float vals[Temperatur
 static void buildTelemetryJson(char* out, size_t outSz,
                                const char* macStr,
                                uint32_t nowMs,
-                               bool aAlive,
-                               bool bAlive,
-                               const float cool[TemperatureBus::SENSORS_PER_BUS],
-                               const float exhaust[TemperatureBus::SENSORS_PER_BUS],
-                               bool failoverOccurred,
-                               const char* failoverDetails) {
+                               bool primaryAlive,
+                               bool standbyAlive,
+                               const float intake[TemperatureBus::SENSORS_PER_BUS],
+                               const float exhaust[TemperatureBus::SENSORS_PER_BUS]) {
   // We avoid ArduinoJson to keep dependencies minimal.
   if (!out || outSz == 0) return;
   out[0] = '\0';
 
   // Pre-build temperature arrays
-  char coolArr[96] = {0};
-  char exhArr[96] = {0};
-  appendTempArray(coolArr, sizeof(coolArr), cool);
-  appendTempArray(exhArr, sizeof(exhArr), exhaust);
+  char intakeArr[96] = {0};
+  char exhaustArr[96] = {0};
+  appendTempArray(intakeArr, sizeof(intakeArr), intake);
+  appendTempArray(exhaustArr, sizeof(exhaustArr), exhaust);
 
   // Escape details minimally (replace \" with ').
-  char detailsSafe[128];
-  size_t di = 0;
-  if (!failoverDetails) failoverDetails = "";
-  for (size_t i = 0; failoverDetails[i] && di + 1 < sizeof(detailsSafe); i++) {
-    char c = failoverDetails[i];
-    if (c == '"') c = '\'';
-    if ((uint8_t)c < 0x20) c = ' '; // strip control chars
-    detailsSafe[di++] = c;
-  }
-  detailsSafe[di] = '\0';
+  // char detailsSafe[128];
+  // size_t di = 0;
+  // if (!failoverDetails) failoverDetails = "";
+  // for (size_t i = 0; failoverDetails[i] && di + 1 < sizeof(detailsSafe); i++) {
+  //   char c = failoverDetails[i];
+  //   if (c == '"') c = '\'';
+  //   if ((uint8_t)c < 0x20) c = ' '; // strip control chars
+  //   detailsSafe[di++] = c;
+  // }
+  // detailsSafe[di] = '\0';
 
   snprintf(
     out, outSz,
@@ -117,8 +115,8 @@ static void buildTelemetryJson(char* out, size_t outSz,
     "  \"items\": [\n"
     "    {\n"
     "      \"kind\": \"heartbeat\",\n"
-    "      \"controller_a_alive\": %s,\n"
-    "      \"controller_b_alive\": %s\n"
+    "      \"primary_alive\": %s,\n"
+    "      \"standby_alive\": %s\n"
     "    },\n"
     "    {\n"
     "      \"kind\": \"sensors\",\n"
@@ -143,12 +141,10 @@ static void buildTelemetryJson(char* out, size_t outSz,
     "}\n",
     macStr,
     (unsigned long)nowMs,
-    aAlive ? "true" : "false",
-    bAlive ? "true" : "false",
-    coolArr,
-    exhArr,
-    failoverOccurred ? "true" : "false",
-    detailsSafe
+    primaryAlive ? "true" : "false",
+    standbyAlive ? "true" : "false",
+    intakeArr,
+    exhaustArr
   );
 }
 
@@ -157,7 +153,7 @@ void setup() {
   delay(200);
 
   Serial.println();
-  Serial.printf("Booting Controller %c\n", (char)DEVICE_ID);
+  Serial.printf("Booting Controller!\n");
 
   // Start heartbeat UART link and create the Heartbeat task
   hb.begin(HB_RX_PIN, HB_TX_PIN, HB_UART_BAUD);
@@ -194,43 +190,42 @@ void loop() {
   const uint32_t ageMs = (hb.lastRxMS() == 0) ? 0 : (now - hb.lastRxMS());
 
   // Determine A/B alive flags (self is always alive)
-  const char myId = (char)DEVICE_ID;
-  const bool controllerAAlive = (myId == 'A') ? true : peerAlive;
-  const bool controllerBAlive = (myId == 'B') ? true : peerAlive;
+  const bool primaryAlive = (isControllerPrimary()) ? true : peerAlive;
+  const bool standbyAlive = (isControllerStandby()) ? true : peerAlive;
+
+  // Determine whether B should take over sending:
+  // - "healthy" means A is the peer and is alive
+  const bool everSawPartner = (hb.lastRxMS() != 0);
+  const bool partnerAlive = peerAlive;
+
 
   // Failover event tracking (purely logical in this "no-relay" version)
-  static bool failoverOccurred = false;
-  static char failoverDetails[96] = {0};
-  if ((myId == 'B') && !failoverOccurred) {
-    const bool healthy = (hb.peerId() == 'A') && peerAlive;
-    if (!healthy && hb.peerId() == 'A') {
-      failoverOccurred = true;
-      snprintf(failoverDetails, sizeof(failoverDetails),
-               "B took over after %lu ms heartbeat silence", (unsigned long)ageMs);
-    }
-  }
+  // static bool failoverOccurred = false;
+  // static char failoverDetails[96] = {0};
+  // if (isControllerStandby() && !failoverOccurred) { 
+  //   const bool healthy =  peerAlive;
+  //   if (everSawPartner && !healthy) {
+  //     failoverOccurred = true;
+  //     snprintf(failoverDetails, sizeof(failoverDetails),
+  //              "Standby took over after %lu ms heartbeat silence", (unsigned long)ageMs);
+  //   }
+  // }
 
   // 5) Telemetry send (only active controller sends)
   static uint32_t lastTelemetry = 0;
 
-  // Determine whether B should take over sending:
-  // - "healthy" means A is the peer and is alive
-  static bool everSawA = false;
-  if (hb.peerId() == 'A') everSawA = true;
-
-  const bool healthyA = (hb.peerId() == 'A') && peerAlive;
-
   // Optional boot grace: if A never appears, let B start sending after a few seconds
-  const uint32_t BOOT_GRACE_MS = 5000;
-  const bool allowBootTakeover = (now > BOOT_GRACE_MS) && !everSawA;
+  const uint32_t BOOT_GRACE_MS = 10000;
+  const bool allowBootTakeover = (now > BOOT_GRACE_MS) && !everSawPartner;
 
   bool iAmActiveSender = false;
-  if (isControllerA()) {
-    iAmActiveSender = true;                  // A always sends
-  } else if (isControllerB()) {
-    // B sends only if A is unhealthy (after timeout) OR A never appeared after grace
-    iAmActiveSender = (!healthyA && everSawA) || allowBootTakeover;
+  if (isControllerPrimary()) {
+    iAmActiveSender = true;                  //Primary always sends by default
+  } else if (isControllerStandby()) {
+    // Standby sends only if A is unhealthy (after timeout) OR A never appeared after grace
+    iAmActiveSender = (!partnerAlive && everSawPartner) || allowBootTakeover; // TODO: It need to send event accrued to /event topic
   }
+  iAmActiveSender = iAmActiveSender && net.isEnabled(); // Only send if it is enabled
 
   if (iAmActiveSender && (uint32_t)(now - lastTelemetry) >= (uint32_t)TELEMETRY_SEND_MS) {
     lastTelemetry = now;
@@ -246,10 +241,8 @@ void loop() {
     const String macStr = TelemetrySender::deviceMacString();
     buildTelemetryJson(json, sizeof(json),
                        macStr.c_str(), now,
-                       controllerAAlive, controllerBAlive,
-                       cool, exhaust,
-                       failoverOccurred,
-                       failoverDetails);
+                       primaryAlive, standbyAlive,
+                       cool, exhaust);
 
     const bool ok = net.sendMQTT(json);
     if (!ok) {
@@ -259,13 +252,14 @@ void loop() {
     }
   }
 
-  // Controller A: prints HB status periodically + always prints temps when sampled
-  if (isControllerA()) {
+  // Enabled Controller: prints HB status periodically + always prints temps when sampled
+  if (net.isEnabled() || (net.config().role == ControllerRole::Standby && !peerAlive)) {
     static uint32_t lastStatus = 0;
     if ((uint32_t)(now - lastStatus) >= 1000) {
       lastStatus = now;
-      Serial.printf("[HB:A] peer=%c, alive=%d, age_ms=%lu\n",
-                    hb.peerId(),
+      Serial.printf("[HB:%c] peer=%c, alive=%d, age_ms=%lu\n",
+                    net.config().role,
+                    net.config().role == ControllerRole::Primary ? "Standby" : "Primary",
                     peerAlive ? 1 : 0,
                     (unsigned long)ageMs);
     }
@@ -273,37 +267,51 @@ void loop() {
     maybePrintTemps();
   }
 
-  // Controller B: prints temps only when A is unhealthy; logs transitions
-  if (isControllerB()) {
+  // Standby Controller: prints temps only when A is unhealthy; logs transitions
+  if (isControllerStandby()) {
     static bool lastHealthy = false;
     static bool everHealthy = false;
 
     // Your original policy: B considers "healthy" only if the peer is A and alive.
-    const bool healthy = (hb.peerId() == 'A') && peerAlive;
+    const bool healthy = peerAlive;
 
     if (lastHealthy && !healthy) {
-      Serial.printf("[ALERT:B] Lost heartbeat from A (timeout=%d ms). peer=%c age_ms=%lu\n",
+      Serial.printf("[ALERT: STANDBY] Lost heartbeat from Primary (timeout=%d ms). peer=%c age_ms=%lu\n",
                     (int)HB_TIMEOUT_MS, hb.peerId(), (unsigned long)ageMs);
-      Serial.printf("[INFO:B] Trying to recover the bus communication...\n");
+      
+        if (net.isUp()){
+          const bool sent = net.sendEvent("{\"message_type\":\"event\",\"event_type\":\"primary_down\",\"details\":\"Standby took over after Primary heartbeat timeout\"}");
+          if (!sent) {
+            Serial.println("[ALERT: STANDBY] Failed to send primary down event to MQTT");
+          }      
+        } else {
+          Serial.println("[ALERT: STANDBY] Network is down. Failed to send primary down event to MQTT");
+        }
+      
+
     }
 
     if (!lastHealthy && healthy) {
       if (everHealthy) {
-        Serial.printf("[RECOVER:B] Heartbeat from A restored. age_ms=%lu\n",
+        Serial.printf("[RECOVER: STANDBY] Heartbeat from Primary restored. age_ms=%lu\n",
                       (unsigned long)ageMs);
-        Serial.printf("[INFO:B] Releasing the bus communication to device %c\n", hb.peerId());
+
+        if (net.isUp()){
+          const bool sent = net.sendEvent("{\"message_type\":\"event\",\"event_type\":\"primary_up\",\"details\":\"Standby detected Primary heartbeat restored\"}");
+          if (!sent) {
+            Serial.println("[RECOVER: STANDBY] Failed to send primary up event to MQTT");
+          }      
+        } else {
+          Serial.println("[RECOVER: STANDBY] Network is down. Failed to send primary up event to MQTT");
+        }
+
+        Serial.printf("[INFO: STANDBY] Entering passive mode to save energy. Telemetry will not send.\n");
+        // TODO: Enter low energy mode just listen/sent heartbeat and listen config topic.
       }
       everHealthy = true;
     }
 
     lastHealthy = healthy;
-
-    // Print temps continuously while unhealthy (more useful than edge-only)
-    if (!healthy) {
-      maybePrintTemps();
-    } else {
-      // Stay quiet when healthy.
-    }
   }
 
   vTaskDelay(pdMS_TO_TICKS(10));

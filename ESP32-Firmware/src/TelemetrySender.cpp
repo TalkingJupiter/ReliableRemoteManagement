@@ -276,3 +276,17 @@ bool TelemetrySender::sendMQTT(const char* jsonPayload){
   }
   return published;
 }
+
+bool TelemetrySender::sendEvent(const char* jsonPayload){
+  if (!jsonPayload || !jsonPayload[0]) return false;
+  if (config_.eventTopic[0] == '\0') return false;
+  if (!connectMqtt()) return false;
+  if(!config_.enabled) return false;
+
+  const bool published = mqttClient.publish(config_.eventTopic.c_str(), jsonPayload);
+  if (!published) {
+    Serial.printf("[MQTT] Publish failed on %s, state=%d\n",
+                  config_.eventTopic.c_str(), mqttClient.state());
+  }
+  return published;
+}

@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef DEVICE_ID
-    #error "[ERROR] Device_ID must be sent via host device!" 
-#endif
 
 /*
 ==========
