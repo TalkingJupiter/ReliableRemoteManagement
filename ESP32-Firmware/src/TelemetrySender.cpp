@@ -17,6 +17,7 @@ static char gMacSafe[13] = {0};
 static char gClientId[32] = {0};
 static char gConfigTopic[80] = {0};
 static char gHelloTopic[80] = {0};
+static char gTelemetryTopic[80] = {0};
 static PubSubClient mqttClient(ethClient);
 
 static TelemetrySender* gself = nullptr;
@@ -39,7 +40,8 @@ static void buildMqttIdentity(const byte mac[6]) {
   macAddrCompact(mac, gMacSafe, sizeof(gMacSafe));
   snprintf(gClientId, sizeof(gClientId), "%s-%s", BASE_TOPIC, gMacSafe);
   snprintf(gHelloTopic, sizeof(gHelloTopic), "%s/devices/%s/hello", BASE_TOPIC, gMacSafe);
-  snprintf(gConfigTopic, sizeof(gConfigTopic), "%s/devices/%s/config", BASE_TOPIC, gMacSafe);         
+  snprintf(gConfigTopic, sizeof(gConfigTopic), "%s/devices/%s/config", BASE_TOPIC, gMacSafe);
+  snprintf(gTelemetryTopic, sizeof(gTelemetryTopic), "%s/devices/%s/telemetry", BASE_TOPIC, gMacSafe);         
 }
 
 static bool connectMqtt() {
@@ -264,15 +266,15 @@ bool TelemetrySender::hello(){
 bool TelemetrySender::sendMQTT(const char* jsonPayload){
   if (!isUp()) return false;
   if (!jsonPayload || !jsonPayload[0]) return false;
-  if (config_.telemetryTopic[0] == '\0') return false;
+  if (gTelemetryTopic[0] == '\0') return false;
   if (!connectMqtt()) return false;
   if(!config_.configured) return false;
   if(!config_.enabled) return false;
 
-  const bool published = mqttClient.publish(config_.telemetryTopic.c_str(), jsonPayload);
+  const bool published = mqttClient.publish(gTelemetryTopic, jsonPayload);
   if (!published) {
-    Serial.printf("[MQTT] Publish failed on %s, state=%d\n",
-                  config_.telemetryTopic.c_str(), mqttClient.state());
+    Serial.printf("[MQTT] Telemetry publish failed on %s, state=%d\n",
+                  gTelemetryTopic, mqttClient.state());
   }
   return published;
 }
@@ -285,7 +287,7 @@ bool TelemetrySender::sendEvent(const char* jsonPayload){
 
   const bool published = mqttClient.publish(config_.eventTopic.c_str(), jsonPayload);
   if (!published) {
-    Serial.printf("[MQTT] Publish failed on %s, state=%d\n",
+    Serial.printf("[MQTT] Event publish failed on %s, state=%d\n",
                   config_.eventTopic.c_str(), mqttClient.state());
   }
   return published;
