@@ -251,8 +251,8 @@ bool TelemetrySender::hello(){
   if(now - lastHelloMs < HELLO_INTERVAL_MS) return false;
   lastHelloMs = now;
 
-  char payload[64];
-  snprintf(payload, sizeof(payload), "{\"message_type\":\"hello\",\"mac\":\"%s\"}", gMacSafe);
+  char payload[128];
+  snprintf(payload, sizeof(payload), "{\"message_type\":\"hello\",\"mac\":\"%s\",\"firmware_version\":\"%s\"}", gMacSafe, FIRMWARE_VERSION);
   bool published = mqttClient.publish(gHelloTopic, payload);
   Serial.printf("[HELLO] Published to %s with a payload of %s\n", gHelloTopic, payload);
   if(!published){
