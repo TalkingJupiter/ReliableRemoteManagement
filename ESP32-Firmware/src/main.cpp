@@ -130,12 +130,6 @@ static void buildTelemetryJson(char* out, size_t outSz,
     "          \"temperatures_c\": %s\n"
     "        }\n"
     "      ]\n"
-    "    },\n"
-    "    {\n"
-    "      \"kind\": \"event\",\n"
-    "      \"type\": \"failover\",\n"
-    "      \"occurred\": %s,\n"
-    "      \"details\": \"%s\"\n"
     "    }\n"
     "  ]\n"
     "}\n",
@@ -253,12 +247,12 @@ void loop() {
   }
 
   // Enabled Controller: prints HB status periodically + always prints temps when sampled
-  if (net.isEnabled() || (net.config().role == ControllerRole::Standby && !peerAlive)) {
+  if (net.isEnabled()) {
     static uint32_t lastStatus = 0;
     if ((uint32_t)(now - lastStatus) >= 1000) {
       lastStatus = now;
-      Serial.printf("[HB:%c] peer=%c, alive=%d, age_ms=%lu\n",
-                    net.config().role,
+      Serial.printf("[HB:%s] peer=%s, alive=%d, age_ms=%lu\n",
+                    net.config().roleString(),
                     net.config().role == ControllerRole::Primary ? "Standby" : "Primary",
                     peerAlive ? 1 : 0,
                     (unsigned long)ageMs);

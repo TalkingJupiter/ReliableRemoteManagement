@@ -16,11 +16,11 @@ DEVICE_REGISTRY = {
 }
 
 
-def is_enabled(mac: str, role: str):
-    if(role == "Primary"):
-        return True
-    
-    return False
+def is_enabled(mac: str, role: str) -> bool:
+    # Both Primary and Standby are enabled -- role + heartbeat decides who
+    # actually transmits. enabled:false is the remote kill-switch (OTA /
+    # maintenance), not the standby-quiet mechanism.
+    return role in ("Primary", "Standby")
 
 
 def build_config(mac: str, device: dict) -> dict:
