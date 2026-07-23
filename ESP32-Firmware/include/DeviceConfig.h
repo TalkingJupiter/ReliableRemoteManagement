@@ -1,8 +1,5 @@
 #pragma once
 
-#ifndef DEVICE_ID
-    #error "[ERROR] Device_ID must be sent via host device!" 
-#endif
 
 /*
 ==========
@@ -56,35 +53,7 @@ ONE WIRE BUS Conf
     #define TELEMETRY_SEND_MS 5000
 #endif 
 
-/*
-==========
-RELAY Conf
-==========
-*/
-#ifndef RELAY_PIN 
-    #define RELAY_PIN 25
-#endif
 
-#ifndef RELAY_ACTIVE_LOW
-    #define RELAY_ACTIVE_LOW 1
-#endif
-
-#ifndef BREAK_BEFORE_MAKE_MS
-    #define BREAK_BEFORE_MAKE_MS 30
-#endif
-
-/*
-==========
-DATABUS SWITCH Conf
-==========
-*/
-#ifndef INTAKE_SWITCH_PIN
-    #define INTAKE_SWITCH_PIN 33
-#endif
-
-#ifndef EXHAUST_SWITCH_PIN
-    #define EXHAUST_SWITCH_PIN 35
-#endif
 
 /*
 ==========
