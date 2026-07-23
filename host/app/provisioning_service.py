@@ -15,6 +15,7 @@ DEVICE_REGISTRY = {
     }
 }
 
+DEVICE_STATE = {}
 
 def is_enabled(mac: str, role: str) -> bool:
     # Both Primary and Standby are enabled -- role + heartbeat decides who
@@ -51,6 +52,17 @@ def on_message(client: mqtt.Client, userdata, msg):
     
     parts = topic.split("/")
     mac = parts[2]
+
+    try:
+        hello = json.loads(payload_txt)
+    except json.JSONDecodeError:
+        print(f"[WARN] Invalid JSON payload from {mac}: {payload_txt}")
+        return
+
+    fw = hello.get("firmware_version", "unknown")
+    print(f"[INFO] Device {mac} running firmware version: {fw}")
+    DEVICE_STATE[mac] = DEVICE_STATE.get(mac, {}) | {"firmware_version": fw}
+    print(f"[INFO] Updated device state: {DEVICE_STATE[mac]}")
 
     device = DEVICE_REGISTRY.get(mac)
     config_topic = f"repacss/devices/{mac}/config"
