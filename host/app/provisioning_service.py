@@ -1,21 +1,69 @@
-import os
 import json
+import time
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
+from app.config import settings
+from app.db import connect as db_connect
 
-# Temporary development registry -> Move it to DB when its ready
-DEVICE_REGISTRY = {
-    "ECE3347C07D0": {
-        "rack_id": "rack01",
-        "role": "Primary",
-    },
-    "ECE3347C07D1": {
-        "rack_id": "rack01",
-        "role": "Standby",
-    }
-}
+conn = db_connect()
 
-DEVICE_STATE = {}
+_device_map = {}
+_device_map_ts = 0.0
+_DEVICE_MAP_TTL = 60.0  # seconds
+
+
+def cache_device_map() -> dict:
+    global _device_map, _device_map_ts
+    now = time.monotonic()
+    if now - _device_map_ts > _DEVICE_MAP_TTL:
+        _device_map = get_device_map()
+        _device_map_ts = now
+    return _device_map
+
+def get_device_map() -> dict:
+    """Fetch the device registry from the database and return a mapping of mac addresses to device info."""
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT mac, rack_id, role, enabled FROM repacss_environment.device_map WHERE retired = false")
+                rows = cur.fetchall()
+                return {row[0]: {"rack_id": row[1], "role": row[2], "enabled": row[3]} for row in rows}
+    except Exception as error:
+        print(f"[ERROR] Failed to fetch device registry from database: {error}")
+        return {}
+
+def get_device_state() -> dict:
+    """Fetch the device state from the database and return a mapping of mac addresses to their current state."""
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT mac, running_firmware_version FROM repacss_environment.current_status WHERE last_seen > now() - interval '1 minutes'")
+                rows = cur.fetchall()
+                return {row[0]: {"firmware_version": row[1]} for row in rows}
+    except Exception as error:
+        print(f"[ERROR] Failed to fetch device state from database: {error}")
+        return {}
+
+def upsert_device_state(mac: str, fw: str) -> None:
+    """Persist the device's reported firmware version and liveness into current_status."""
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO repacss_environment.current_status
+                        (mac, alive, last_seen, running_firmware_version)
+                    VALUES (%s, true, now(), %s)
+                    ON CONFLICT (mac) DO UPDATE
+                    SET alive = EXCLUDED.alive,
+                        last_seen = EXCLUDED.last_seen,
+                        running_firmware_version = EXCLUDED.running_firmware_version
+                    """,
+                    (mac, fw),
+                )
+    except Exception as error:
+        print(f"[ERROR] Failed to upsert device state for {mac}: {error}")
+
 
 def is_enabled(mac: str, role: str) -> bool:
     # Both Primary and Standby are enabled -- role + heartbeat decides who
@@ -61,10 +109,9 @@ def on_message(client: mqtt.Client, userdata, msg):
 
     fw = hello.get("firmware_version", "unknown")
     print(f"[INFO] Device {mac} running firmware version: {fw}")
-    DEVICE_STATE[mac] = DEVICE_STATE.get(mac, {}) | {"firmware_version": fw}
-    print(f"[INFO] Updated device state: {DEVICE_STATE[mac]}")
+    upsert_device_state(mac, fw)
 
-    device = DEVICE_REGISTRY.get(mac)
+    device = cache_device_map().get(mac)
     config_topic = f"repacss/devices/{mac}/config"
 
     if device is None:
@@ -88,16 +135,13 @@ def on_message(client: mqtt.Client, userdata, msg):
     client.publish(config_topic, json.dumps(config), qos=1, retain=False)
 
 
-BROKER_HOST = os.environ.get("BROKER_HOST", "mosquitto")
-BROKER_PORT = int(os.environ.get("BROKER_PORT", "1883"))
-
 client = mqtt.Client(
-    CallbackAPIVersion.VERSION2, 
+    CallbackAPIVersion.VERSION2,
     client_id="repacss-provisioning-service"
 )
 
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect(BROKER_HOST, BROKER_PORT)
+client.connect(settings.broker_host, settings.broker_port)
 client.loop_forever()
