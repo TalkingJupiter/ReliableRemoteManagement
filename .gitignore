@@ -5,6 +5,7 @@
 .vscode/ipch
 .vscode/
 .DS_Store
+.env
 example.md
 
 host/broker/data/
