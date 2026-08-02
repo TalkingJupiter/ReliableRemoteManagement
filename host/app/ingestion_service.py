@@ -1,6 +1,8 @@
 import datetime
 import json
 import paho.mqtt.client as mqtt
+from paho.mqtt.enums import CallbackAPIVersion
+from app.config import settings
 from app.db import connect as db_connect
 
 conn = db_connect()
@@ -88,7 +90,7 @@ def handle_telemetry(conn, ts, mac, rack_id, bus, sensor_index, temp_c):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO repacss_environment.telemetry (ts_host, mac, rack_id, bus, sensor_index, temp_c)
+                INSERT INTO repacss_environment.telemetry (ts_host, mac, rack_id, bus, sensor_index, temperature_celsius)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (ts, mac, rack_id, bus, sensor_index, temp_c)
@@ -109,3 +111,14 @@ def handle_event(mac, payload):
 def handle_ack(mac, payload):
     print(f"[INFO] Acknowledgement from {mac}: {payload}")
     raise NotImplementedError("Acknowledgement handling is not implemented yet.")
+
+client = mqtt.Client(
+    CallbackAPIVersion.VERSION2,
+    client_id="repacss-ingestion-service",
+)
+
+client.on_connect = on_connect
+client.on_message = on_message
+
+client.connect(settings.broker_host, settings.broker_port)
+client.loop_forever()  # Blocking call to process network traffic and dispatch callbacks

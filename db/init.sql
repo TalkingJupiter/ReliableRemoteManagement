@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS repacss_environment.telemetry (
     ts_host timestamptz NOT NULL,
     mac macaddr NOT NULL,
     rack_id int NOT NULL,
-    bus text NOT NULL CHECK (bus IN ('exhaust', 'intake')),
+    bus text NOT NULL CHECK (bus IN ('inlet', 'exhaust')),
     sensor_index smallint NOT NULL,
     temperature_celsius real
 );
