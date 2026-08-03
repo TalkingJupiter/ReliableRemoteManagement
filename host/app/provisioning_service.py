@@ -96,7 +96,9 @@ def build_config(mac: str, device: dict) -> dict:
         "mac": mac,
         "configured": True,
         "enabled": is_enabled(mac, role),
-        "rack_id": rack_id,
+        # Sent as a string: the firmware parses rack_id with as<const char*>(),
+        # which yields null for a JSON integer and fails config validation.
+        "rack_id": str(rack_id),
         "role": role
     }
 

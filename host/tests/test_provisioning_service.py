@@ -57,13 +57,15 @@ def test_is_enabled(role, expected):
 # --- build_config -------------------------------------------------------------
 
 def test_build_config_primary_full_shape():
+    # rack_id goes out as a string: the firmware reads it with
+    # as<const char*>(), which yields null for a JSON integer.
     cfg = prov.build_config("MAC", {"rack_id": 1, "role": "Primary"})
     assert cfg == {
         "message_type": "config",
         "mac": "MAC",
         "configured": True,
         "enabled": True,
-        "rack_id": 1,
+        "rack_id": "1",
         "role": "Primary",
     }
 
