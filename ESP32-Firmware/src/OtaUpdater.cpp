@@ -1,8 +1,9 @@
 #include "OtaUpdater.h"
 
-#include <Ethernet.h>          
+#include <Ethernet.h>
 #include <Update.h>            // Arduino flash writer
-#include "mbedtls/sha256.h"    
+#include <Preferences.h>       // NVS wrapper, holds the probation state
+#include "mbedtls/sha256.h"
 
 #ifdef ESP32
   #include <esp_ota_ops.h>    
@@ -14,6 +15,16 @@
 static const uint32_t OTA_CONNECT_TIMEOUT_MS = 5000;
 static const uint32_t OTA_STALL_MS           = 10000;
 static const size_t   OTA_CHUNK              = 1024;
+
+// Probation window: how long a freshly flashed image has to reach MQTT
+// before we give up on it, and how many boots it may burn trying.
+static const uint32_t OTA_PROBATION_MS   = 60000;
+static const uint8_t  OTA_MAX_BOOT_TRIES = 3;
+
+// NVS namespace and keys for the probation state (survives reset and power loss).
+static const char* OTA_NVS_NS    = "ota";
+static const char* OTA_KEY_PROB  = "probation";
+static const char* OTA_KEY_BOOTS = "boots";
 
 // One-way "OTA running" flag: written here (core 0), read by heartbeatTask (core 1).
 static volatile bool s_inProgress = false;
@@ -118,23 +129,115 @@ static void logOtaState(){
 
 void OtaUpdater::begin() {
   logOtaState();
+
+  // Pick up probation state left by a previous OTA. Every boot that happens
+  // while on probation counts against the image: an image that panics early
+  // burns its tries and gets reverted without ever reaching the deadline.
+  Preferences prefs;
+  if (!prefs.begin(OTA_NVS_NS, false)) {
+    Serial.println("[OTA] NVS unavailable, probation disabled this boot");
+    return;
+  }
+
+  if (prefs.getBool(OTA_KEY_PROB, false)) {
+    const uint8_t tries = prefs.getUChar(OTA_KEY_BOOTS, 0) + 1;
+    prefs.putUChar(OTA_KEY_BOOTS, tries);
+    prefs.end();
+
+    if (tries > OTA_MAX_BOOT_TRIES) {
+      revertToPrevious("image kept rebooting without reaching MQTT");
+      return;  // not reached, revertToPrevious restarts
+    }
+
+    _probation = true;
+    _probationDeadlineMs = millis() + OTA_PROBATION_MS;
+    Serial.printf("[OTA] Image on probation (boot %u of %u), must reach MQTT within %lu ms\n",
+                  tries, OTA_MAX_BOOT_TRIES, (unsigned long)OTA_PROBATION_MS);
+    return;
+  }
+
+  prefs.end();
 }
 
+// Arm probation for the image we are about to reboot into.
+void OtaUpdater::markProbation() {
+  Preferences prefs;
+  if (!prefs.begin(OTA_NVS_NS, false)) {
+    Serial.println("[OTA] WARNING: NVS unavailable, new image will not be on probation");
+    return;
+  }
+  prefs.putBool(OTA_KEY_PROB, true);
+  prefs.putUChar(OTA_KEY_BOOTS, 0);
+  prefs.end();
+  Serial.println("[OTA] New image armed for probation");
+}
+
+// Point the bootloader back at the slot we are not running and restart.
+// With two app slots, "next update partition" is by definition the other one,
+// which is the image we came from.
+void OtaUpdater::revertToPrevious(const char* why) {
+  Serial.printf("[OTA] ROLLBACK: %s\n", why);
+
+  // Clear probation first so the image we fall back to boots clean, even if
+  // the partition switch below fails and we end up staying where we are.
+  Preferences prefs;
+  if (prefs.begin(OTA_NVS_NS, false)) {
+    prefs.putBool(OTA_KEY_PROB, false);
+    prefs.putUChar(OTA_KEY_BOOTS, 0);
+    prefs.end();
+  }
+  _probation = false;
+
+#ifdef ESP32
+  const esp_partition_t* prev = esp_ota_get_next_update_partition(NULL);
+  if (prev == nullptr) {
+    Serial.println("[OTA] ROLLBACK FAILED: no other app partition found");
+    return;
+  }
+
+  const esp_err_t err = esp_ota_set_boot_partition(prev);
+  if (err != ESP_OK) {
+    Serial.printf("[OTA] ROLLBACK FAILED: %s\n", esp_err_to_name(err));
+    return;
+  }
+
+  Serial.printf("[OTA] Reverting to '%s', rebooting...\n", prev->label);
+  delay(100);
+  ESP.restart();
+#endif
+}
+
+// Called from the main loop once MQTT is connected: the image works well
+// enough to talk to the host, so end its probation and keep it.
 void OtaUpdater::confirmHealthy() {
-  //       once-only guard; if running img_state == PENDING_VERIFY,
-  //       esp_ota_mark_app_valid_cancel_rollback()
-  #ifdef ESP32
     static bool confirmed = false;
     if(confirmed) return;
     confirmed=true;
 
+    // Clear our software probation. This is the part that actually protects
+    // us, since the stock bootloader never marks images PENDING_VERIFY.
+    if (_probation) {
+        Preferences prefs;
+        if (prefs.begin(OTA_NVS_NS, false)) {
+            prefs.putBool(OTA_KEY_PROB, false);
+            prefs.putUChar(OTA_KEY_BOOTS, 0);
+            prefs.end();
+        }
+        _probation = false;
+        Serial.println("[OTA] Image reached MQTT, probation passed and cleared");
+    }
+
+  #ifdef ESP32
+    // Bootloader-level rollback, only meaningful if the bootloader was built
+    // with CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE. The stock PlatformIO
+    // Arduino bootloader is not, so this normally reports a normal boot.
     const esp_partition_t* running = esp_ota_get_running_partition();
     esp_ota_img_states_t st;
     if(running && esp_ota_get_state_partition(running, &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY){
         esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
         Serial.printf("[OTA] Pending image confirmed valid, rollback canceled: %s\n", esp_err_to_name(err));
     } else {
-        Serial.println("[OTA] No pending image to confirm (normal boot)");
+        Serial.println("[OTA] No bootloader-pending image to confirm");
     }
   #endif
 }
@@ -157,6 +260,14 @@ void OtaUpdater::request(const char* url, const char* sha256Hex) {
 }
 
 void OtaUpdater::tick() {
+    // Probation deadline: if this image has not reached MQTT in time, it does
+    // not work well enough to keep. Signed subtraction so millis() rollover
+    // cannot make the deadline look permanently unreached.
+    if (_probation && (int32_t)(millis() - _probationDeadlineMs) >= 0) {
+        revertToPrevious("no MQTT connection within the probation window");
+        return;  // not reached, revertToPrevious restarts
+    }
+
     if(_state != REQUESTED) return;
     _state = IDLE;
     runUpdate();
@@ -294,6 +405,9 @@ void OtaUpdater::runUpdate() {
         Serial.printf("[OTA] Update.end error: %s\n", Update.errorString());
         fail("Update.end failed"); return;
     }
+
+    // Put the incoming image on trial before we hand control to it.
+    markProbation();
 
     Serial.println("[OTA] Update OK, rebooting into new image...");
     delay(100);
