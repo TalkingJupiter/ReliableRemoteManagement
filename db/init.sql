@@ -1,7 +1,7 @@
 CREATE SCHEMA IF NOT EXISTS repacss_environment;
 CREATE TABLE IF NOT EXISTS repacss_environment.device_map (
     mac macaddr PRIMARY KEY,
-    rack_id int NOT NULL,
+    rack_id text NOT NULL,
     role text NOT NULL,
     enabled boolean NOT NULL,
     retired boolean NOT NULL DEFAULT false
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS repacss_environment.device_map (
 CREATE TABLE IF NOT EXISTS repacss_environment.telemetry (
     ts_host timestamptz NOT NULL,
     mac macaddr NOT NULL,
-    rack_id int NOT NULL,
+    rack_id text NOT NULL,
     bus text NOT NULL CHECK (bus IN ('inlet', 'exhaust')),
     sensor_index smallint NOT NULL,
     temperature_celsius real
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS repacss_environment.events (
     mac macaddr NOT NULL,
     event_type text NOT NULL,
     details text,
-    rack_id int NOT NULL,
+    rack_id text NOT NULL,
     role text NOT NULL
 );
 SELECT create_hypertable('repacss_environment.events', 'ts_host');
