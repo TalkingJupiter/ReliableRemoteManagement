@@ -25,7 +25,14 @@ def get_device_map() -> dict:
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT mac, rack_id, role, enabled FROM repacss_environment.device_map WHERE retired = false")
+                # macaddr renders as 'ec:e3:34:7c:07:d0', but devices identify
+                # themselves with the compact uppercase form in topics and in
+                # the hello payload. Normalize here so the dict keys match the
+                # mac we parse off the topic.
+                cur.execute(
+                    "SELECT upper(replace(mac::text, ':', '')), rack_id, role, enabled "
+                    "FROM repacss_environment.device_map WHERE retired = false"
+                )
                 rows = cur.fetchall()
                 return {row[0]: {"rack_id": row[1], "role": row[2], "enabled": row[3]} for row in rows}
     except Exception as error:
@@ -37,7 +44,13 @@ def get_device_state() -> dict:
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT mac, running_firmware_version FROM repacss_environment.current_status WHERE last_seen > now() - interval '1 minutes'")
+                # Same normalization as get_device_map: keys must match the
+                # compact uppercase mac the devices report.
+                cur.execute(
+                    "SELECT upper(replace(mac::text, ':', '')), running_firmware_version "
+                    "FROM repacss_environment.current_status "
+                    "WHERE last_seen > now() - interval '1 minutes'"
+                )
                 rows = cur.fetchall()
                 return {row[0]: {"firmware_version": row[1]} for row in rows}
     except Exception as error:
