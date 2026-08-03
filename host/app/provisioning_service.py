@@ -23,7 +23,7 @@ def cache_device_map() -> dict:
 def get_device_map() -> dict:
     """Fetch the device registry from the database and return a mapping of mac addresses to device info."""
     try:
-        with conn:
+        with conn.transaction():
             with conn.cursor() as cur:
                 # macaddr renders as 'ec:e3:34:7c:07:d0', but devices identify
                 # themselves with the compact uppercase form in topics and in
@@ -42,7 +42,7 @@ def get_device_map() -> dict:
 def get_device_state() -> dict:
     """Fetch the device state from the database and return a mapping of mac addresses to their current state."""
     try:
-        with conn:
+        with conn.transaction():
             with conn.cursor() as cur:
                 # Same normalization as get_device_map: keys must match the
                 # compact uppercase mac the devices report.
@@ -60,7 +60,7 @@ def get_device_state() -> dict:
 def upsert_device_state(mac: str, fw: str) -> None:
     """Persist the device's reported firmware version and liveness into current_status."""
     try:
-        with conn:
+        with conn.transaction():
             with conn.cursor() as cur:
                 cur.execute(
                     """

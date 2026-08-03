@@ -60,7 +60,7 @@ def on_message(client: mqtt.Client, userdata, msg):
         print(f"[WARN] Unknown message type '{message_type}' from {mac}")
 
 def is_registered(mac):
-    with conn:
+    with conn.transaction():
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT 1 FROM repacss_environment.device_map WHERE mac = %s",
@@ -70,7 +70,7 @@ def is_registered(mac):
 
 def rack_filter(mac):
     print(f"[INFO] Filtering rack_id for device {mac}")
-    with conn:
+    with conn.transaction():
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT rack_id FROM repacss_environment.device_map WHERE mac = %s",
@@ -86,7 +86,7 @@ def rack_filter(mac):
 def handle_telemetry(conn, ts, mac, rack_id, bus, sensor_index, temp_c):
     print(f"[INFO] Telemetry received from {mac}")
 
-    with conn:
+    with conn.transaction():
         with conn.cursor() as cur:
             cur.execute(
                 """
