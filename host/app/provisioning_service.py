@@ -1,43 +1,11 @@
 import json
-import time
 import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
 from app.config import settings
 from app.db import connect as db_connect
+from app import device_registry
 
 conn = db_connect()
-
-_device_map = {}
-_device_map_ts = 0.0
-_DEVICE_MAP_TTL = 60.0  # seconds
-
-
-def cache_device_map() -> dict:
-    global _device_map, _device_map_ts
-    now = time.monotonic()
-    if now - _device_map_ts > _DEVICE_MAP_TTL:
-        _device_map = get_device_map()
-        _device_map_ts = now
-    return _device_map
-
-def get_device_map() -> dict:
-    """Fetch the device registry from the database and return a mapping of mac addresses to device info."""
-    try:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                # macaddr renders as 'ec:e3:34:7c:07:d0', but devices identify
-                # themselves with the compact uppercase form in topics and in
-                # the hello payload. Normalize here so the dict keys match the
-                # mac we parse off the topic.
-                cur.execute(
-                    "SELECT upper(replace(mac::text, ':', '')), rack_id, role, enabled "
-                    "FROM repacss_environment.device_map WHERE retired = false"
-                )
-                rows = cur.fetchall()
-                return {row[0]: {"rack_id": row[1], "role": row[2], "enabled": row[3]} for row in rows}
-    except Exception as error:
-        print(f"[ERROR] Failed to fetch device registry from database: {error}")
-        return {}
 
 def get_device_state() -> dict:
     """Fetch the device state from the database and return a mapping of mac addresses to their current state."""
@@ -124,7 +92,7 @@ def on_message(client: mqtt.Client, userdata, msg):
     print(f"[INFO] Device {mac} running firmware version: {fw}")
     upsert_device_state(mac, fw)
 
-    device = cache_device_map().get(mac)
+    device = device_registry.lookup(conn, mac)
     config_topic = f"repacss/devices/{mac}/config"
 
     if device is None:

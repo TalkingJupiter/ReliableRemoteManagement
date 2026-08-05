@@ -18,6 +18,7 @@ static char gClientId[32] = {0};
 static char gConfigTopic[80] = {0};
 static char gHelloTopic[80] = {0};
 static char gTelemetryTopic[80] = {0};
+static char gEventTopic[80] = {};
 static PubSubClient mqttClient(ethClient);
 
 static TelemetrySender* gself = nullptr;
@@ -41,7 +42,8 @@ static void buildMqttIdentity(const byte mac[6]) {
   snprintf(gClientId, sizeof(gClientId), "%s-%s", BASE_TOPIC, gMacSafe);
   snprintf(gHelloTopic, sizeof(gHelloTopic), "%s/devices/%s/hello", BASE_TOPIC, gMacSafe);
   snprintf(gConfigTopic, sizeof(gConfigTopic), "%s/devices/%s/config", BASE_TOPIC, gMacSafe);
-  snprintf(gTelemetryTopic, sizeof(gTelemetryTopic), "%s/devices/%s/telemetry", BASE_TOPIC, gMacSafe);         
+  snprintf(gTelemetryTopic, sizeof(gTelemetryTopic), "%s/devices/%s/telemetry", BASE_TOPIC, gMacSafe);
+  snprintf(gEventTopic, sizeof(gEventTopic), "%s/devices/%s/event", BASE_TOPIC, gMacSafe);          
 }
 
 static bool connectMqtt() {
@@ -118,6 +120,21 @@ void onMqttMessage(char* topic, byte* payload, unsigned int lenght){
   String err;
   if(!parseRuntimeConfigJson(String(json), cfg, err)){
     Serial.printf("[CONFIG] Rejected: %s\n", err.c_str());
+
+    // Report the rejection so the host does not see a silent, unconfigured
+    // device. Published straight to gEventTopic rather than through
+    // sendEvent(): a rejected config leaves the device unconfigured/disabled,
+    // and sendEvent()'s enabled gate would drop exactly this case. We are
+    // inside the MQTT receive callback, so the connection is already up.
+    // err comes from a fixed set of validation strings with no quotes, so it
+    // is safe to inline without JSON escaping.
+    if (gEventTopic[0] != '\0') {
+      char evt[256];
+      snprintf(evt, sizeof(evt),
+               "{\"message_type\":\"event\",\"event_type\":\"config_rejected\",\"details\":\"%s\"}",
+               err.c_str());
+      mqttClient.publish(gEventTopic, evt);
+    }
     return;
   }
 
@@ -285,14 +302,13 @@ bool TelemetrySender::sendMQTT(const char* jsonPayload){
 
 bool TelemetrySender::sendEvent(const char* jsonPayload){
   if (!jsonPayload || !jsonPayload[0]) return false;
-  if (config_.eventTopic[0] == '\0') return false;
+  if (gEventTopic[0] == '\0') return false;
   if (!connectMqtt()) return false;
-  if(!config_.enabled) return false;
 
-  const bool published = mqttClient.publish(config_.eventTopic.c_str(), jsonPayload);
+  const bool published = mqttClient.publish(gEventTopic, jsonPayload);
   if (!published) {
     Serial.printf("[MQTT] Event publish failed on %s, state=%d\n",
-                  config_.eventTopic.c_str(), mqttClient.state());
+                  gEventTopic, mqttClient.state());
   }
   return published;
 }

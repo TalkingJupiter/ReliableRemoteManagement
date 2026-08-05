@@ -9,10 +9,6 @@ build_config(mac, device)
 - Returns the full config dict with configured=True and enabled from is_enabled.
 - Missing a required device key raises KeyError (surfaces bad registry data).
 
-get_device_map()
-- Maps DB rows to {mac: {rack_id, role, enabled}}.
-- Returns {} on a DB error (never raises).
-
 get_device_state()
 - Maps DB rows to {mac: {firmware_version}}.
 - Returns {} on a DB error.
@@ -21,8 +17,7 @@ upsert_device_state(mac, fw)
 - Runs the current_status upsert with (mac, fw) parameters.
 - Swallows DB errors (logs, does not raise) so a hello is never lost to a write blip.
 
-cache_device_map()
-- Fetches on first call, serves cached within the TTL, refetches after the TTL.
+(The device_map cache moved to app.device_registry; see test_device_registry.py.)
 
 on_connect(...)
 - Subscribes to the hello topic.
@@ -74,28 +69,6 @@ def test_build_config_missing_key_raises_keyerror():
         prov.build_config("MAC", {"role": "Primary"})  # no rack_id
 
 
-# --- get_device_map -----------------------------------------------------------
-
-def test_get_device_map_maps_rows(monkeypatch, cursor_conn):
-    conn, cur = cursor_conn
-    cur.fetchall.return_value = [
-        ("MAC1", "rpg93", "Primary", True),
-        ("MAC2", "rpg93", "Standby", False),
-    ]
-    monkeypatch.setattr(prov, "conn", conn)
-    assert prov.get_device_map() == {
-        "MAC1": {"rack_id": "rpg93", "role": "Primary", "enabled": True},
-        "MAC2": {"rack_id": "rpg93", "role": "Standby", "enabled": False},
-    }
-
-
-def test_get_device_map_returns_empty_on_error(monkeypatch, cursor_conn):
-    conn, cur = cursor_conn
-    cur.execute.side_effect = Exception("db down")
-    monkeypatch.setattr(prov, "conn", conn)
-    assert prov.get_device_map() == {}
-
-
 # --- get_device_state ---------------------------------------------------------
 
 def test_get_device_state_maps_rows(monkeypatch, cursor_conn):
@@ -135,32 +108,6 @@ def test_upsert_device_state_swallows_error(monkeypatch, cursor_conn):
     prov.upsert_device_state("MAC", "v1.0")  # must not raise
 
 
-# --- cache_device_map ---------------------------------------------------------
-
-def test_cache_device_map_ttl_behaviour(monkeypatch):
-    fetch = MagicMock(side_effect=[{"a": 1}, {"b": 2}])
-    monkeypatch.setattr(prov, "get_device_map", fetch)
-    monkeypatch.setattr(prov, "_device_map", {})
-    monkeypatch.setattr(prov, "_device_map_ts", 0.0)
-
-    clock = {"now": 1000.0}
-    monkeypatch.setattr(prov.time, "monotonic", lambda: clock["now"])
-
-    # First call: cache is stale (ts 0) -> fetch.
-    assert prov.cache_device_map() == {"a": 1}
-    assert fetch.call_count == 1
-
-    # Within the TTL -> cached, no refetch.
-    clock["now"] = 1000.0 + prov._DEVICE_MAP_TTL - 1
-    assert prov.cache_device_map() == {"a": 1}
-    assert fetch.call_count == 1
-
-    # Past the TTL -> refetch.
-    clock["now"] = 1000.0 + prov._DEVICE_MAP_TTL + 1
-    assert prov.cache_device_map() == {"b": 2}
-    assert fetch.call_count == 2
-
-
 # --- on_connect ---------------------------------------------------------------
 
 def test_on_connect_subscribes_to_hello():
@@ -174,8 +121,8 @@ def test_on_connect_subscribes_to_hello():
 def test_on_message_known_device_publishes_config(monkeypatch, make_msg):
     monkeypatch.setattr(prov, "upsert_device_state", MagicMock())
     monkeypatch.setattr(
-        prov, "cache_device_map",
-        MagicMock(return_value={"ECE3347C07D0": {"rack_id": "rpg93", "role": "Primary"}}),
+        prov.device_registry, "lookup",
+        MagicMock(return_value={"rack_id": "rpg93", "role": "Primary"}),
     )
     client = MagicMock()
     msg = make_msg(
@@ -196,7 +143,7 @@ def test_on_message_known_device_publishes_config(monkeypatch, make_msg):
 
 def test_on_message_unknown_device_publishes_not_configured(monkeypatch, make_msg):
     monkeypatch.setattr(prov, "upsert_device_state", MagicMock())
-    monkeypatch.setattr(prov, "cache_device_map", MagicMock(return_value={}))
+    monkeypatch.setattr(prov.device_registry, "lookup", MagicMock(return_value=None))
     client = MagicMock()
     msg = make_msg(
         "repacss/devices/AABBCCDDEEFF/hello",
