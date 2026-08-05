@@ -57,13 +57,14 @@ def test_is_enabled(role, expected):
 # --- build_config -------------------------------------------------------------
 
 def test_build_config_primary_full_shape():
-    cfg = prov.build_config("MAC", {"rack_id": 1, "role": "Primary"})
+    # rack_id is free-form text (rack codenames like "rpg93"), not a number.
+    cfg = prov.build_config("MAC", {"rack_id": "rpg93", "role": "Primary"})
     assert cfg == {
         "message_type": "config",
         "mac": "MAC",
         "configured": True,
         "enabled": True,
-        "rack_id": 1,
+        "rack_id": "rpg93",
         "role": "Primary",
     }
 
@@ -78,13 +79,13 @@ def test_build_config_missing_key_raises_keyerror():
 def test_get_device_map_maps_rows(monkeypatch, cursor_conn):
     conn, cur = cursor_conn
     cur.fetchall.return_value = [
-        ("MAC1", 1, "Primary", True),
-        ("MAC2", 1, "Standby", False),
+        ("MAC1", "rpg93", "Primary", True),
+        ("MAC2", "rpg93", "Standby", False),
     ]
     monkeypatch.setattr(prov, "conn", conn)
     assert prov.get_device_map() == {
-        "MAC1": {"rack_id": 1, "role": "Primary", "enabled": True},
-        "MAC2": {"rack_id": 1, "role": "Standby", "enabled": False},
+        "MAC1": {"rack_id": "rpg93", "role": "Primary", "enabled": True},
+        "MAC2": {"rack_id": "rpg93", "role": "Standby", "enabled": False},
     }
 
 
@@ -174,7 +175,7 @@ def test_on_message_known_device_publishes_config(monkeypatch, make_msg):
     monkeypatch.setattr(prov, "upsert_device_state", MagicMock())
     monkeypatch.setattr(
         prov, "cache_device_map",
-        MagicMock(return_value={"ECE3347C07D0": {"rack_id": 1, "role": "Primary"}}),
+        MagicMock(return_value={"ECE3347C07D0": {"rack_id": "rpg93", "role": "Primary"}}),
     )
     client = MagicMock()
     msg = make_msg(

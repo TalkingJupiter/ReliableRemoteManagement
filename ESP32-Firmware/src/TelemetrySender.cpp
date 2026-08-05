@@ -231,6 +231,10 @@ void TelemetrySender::loop() {
   }
 }
 
+bool TelemetrySender::isMqttConnected() const{
+  return mqttClient.connected();
+}
+
 bool TelemetrySender::isUp() const {
   // Update link status opportunistically.
   gEthUp = (Ethernet.linkStatus() == LinkON);

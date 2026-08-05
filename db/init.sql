@@ -1,7 +1,7 @@
 CREATE SCHEMA IF NOT EXISTS repacss_environment;
 CREATE TABLE IF NOT EXISTS repacss_environment.device_map (
     mac macaddr PRIMARY KEY,
-    rack_id int NOT NULL,
+    rack_id text NOT NULL,
     role text NOT NULL,
     enabled boolean NOT NULL,
     retired boolean NOT NULL DEFAULT false
@@ -10,22 +10,59 @@ CREATE TABLE IF NOT EXISTS repacss_environment.device_map (
 CREATE TABLE IF NOT EXISTS repacss_environment.telemetry (
     ts_host timestamptz NOT NULL,
     mac macaddr NOT NULL,
-    rack_id int NOT NULL,
+    rack_id text NOT NULL,
     bus text NOT NULL CHECK (bus IN ('inlet', 'exhaust')),
     sensor_index smallint NOT NULL,
     temperature_celsius real
 );
 SELECT create_hypertable('repacss_environment.telemetry', 'ts_host');
 
+-- Compression. Telemetry is the only table with real volume: one rack emits
+-- 6 rows every 5 seconds, about 37.8 million rows and roughly 3 GB per year,
+-- and most of each row is Postgres tuple overhead rather than data.
+--
+-- segmentby groups rows into one physical row per sensor series, so the
+-- repeated mac/bus/sensor_index values are stored once instead of per reading,
+-- and the remaining timestamp and temperature columns compress well (delta
+-- encoding on time, and slowly changing floats). rack_id is left out of
+-- segmentby because it is functionally determined by mac and would only
+-- multiply the number of segments.
+ALTER TABLE repacss_environment.telemetry SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'mac, bus, sensor_index',
+    timescaledb.compress_orderby   = 'ts_host DESC'
+);
+
+-- Compress chunks once they stop being written to. Recent data stays
+-- uncompressed so ingestion writes stay fast.
+SELECT add_compression_policy('repacss_environment.telemetry', INTERVAL '7 days');
+
 CREATE TABLE IF NOT EXISTS repacss_environment.events (
     ts_host timestamptz NOT NULL,
     mac macaddr NOT NULL,
     event_type text NOT NULL,
     details text,
-    rack_id int NOT NULL,
+    rack_id text NOT NULL,
     role text NOT NULL
 );
 SELECT create_hypertable('repacss_environment.events', 'ts_host');
+
+-- Events are low volume, but they are kept indefinitely and cost nothing to
+-- compress. A longer window because events are read while investigating
+-- recent incidents.
+ALTER TABLE repacss_environment.events SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'mac, event_type',
+    timescaledb.compress_orderby   = 'ts_host DESC'
+);
+SELECT add_compression_policy('repacss_environment.events', INTERVAL '30 days');
+
+-- No retention policy is set on purpose. Nothing is dropped automatically,
+-- so raw history is kept until someone decides otherwise. If raw 5 second
+-- data stops being worth its space, the pattern is a continuous aggregate
+-- holding per minute and per hour averages, kept forever, plus a retention
+-- policy on the raw table. That is a deliberate data loss decision and is
+-- not made here.
 
 CREATE TABLE IF NOT EXISTS repacss_environment.current_status(
     mac macaddr PRIMARY KEY,
