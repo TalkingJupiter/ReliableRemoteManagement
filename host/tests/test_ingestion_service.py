@@ -8,18 +8,26 @@ on_connect(...)
 is_registered(mac)
 - True when device_map has a matching row, False when it does not.
 
-rack_filter(mac)
-- Returns the rack_id when found, None when the device is not in device_map.
+rack_filter(mac) / role_filter(mac)
+- Returns the rack_id / role when found, None when the device is not in device_map.
 
 handle_telemetry(conn, ...)
 - Inserts one telemetry row with the given parameters.
+- A DB error is logged, not raised (a raise would be swallowed by paho).
 
-handle_status / handle_event / handle_ack
-- Currently placeholders that raise NotImplementedError (documents current state).
+handle_event(conn, ...)
+- Inserts one events row with the given parameters.
+- Null details is stored as null.
+- A DB error is logged, not raised.
+
+handle_status / handle_ack
+- Still placeholders that raise NotImplementedError (documents current state).
 
 on_message(...)
 - Unregistered device -> ignored (no telemetry handling).
 - Telemetry -> one handle_telemetry call per sensor reading across all buses.
+- Event -> looks up rack_id and role, then one handle_event call.
+- Event without event_type -> skipped, no handle_event call.
 - Unknown message type -> warns.
 - Invalid JSON -> ignored.
 - SHARP EDGE: telemetry payload with no 'sensors' item currently raises
@@ -92,10 +100,73 @@ def test_handle_telemetry_inserts_row(cursor_conn):
 
 # --- unimplemented handlers ---------------------------------------------------
 
-@pytest.mark.parametrize("fn_name", ["handle_status", "handle_event", "handle_ack"])
+@pytest.mark.parametrize("fn_name", ["handle_status", "handle_ack"])
 def test_unimplemented_handlers_raise(fn_name):
     with pytest.raises(NotImplementedError):
         getattr(ing, fn_name)("MAC", {})
+
+
+# --- handle_event -------------------------------------------------------------
+
+def test_handle_event_inserts_row(monkeypatch, cursor_conn):
+    conn, cur = cursor_conn
+    ing.handle_event(conn, "2026-01-01T00:00:00Z", "MAC", "primary_down",
+                     "Standby took over", "rpg93", "Standby")
+    cur.execute.assert_called_once()
+    sql, params = cur.execute.call_args.args
+    assert "INSERT INTO repacss_environment.events" in sql
+    assert "VALUES (%s, %s, %s, %s, %s, %s)" in sql
+    assert params == ("2026-01-01T00:00:00Z", "MAC", "primary_down",
+                      "Standby took over", "rpg93", "Standby")
+
+
+def test_handle_event_null_details(monkeypatch, cursor_conn):
+    conn, cur = cursor_conn
+    ing.handle_event(conn, "2026-01-01T00:00:00Z", "MAC", "primary_up",
+                     None, "rpg93", "Standby")
+    _, params = cur.execute.call_args.args
+    assert params[3] is None
+
+
+def test_handle_event_swallows_db_error(monkeypatch, cursor_conn):
+    conn, cur = cursor_conn
+    cur.execute.side_effect = Exception("boom")
+    # Must log and return, not raise (a raise here is swallowed by paho).
+    ing.handle_event(conn, "2026-01-01T00:00:00Z", "MAC", "primary_down",
+                     "d", "rpg93", "Standby")
+
+
+def test_on_message_event_looks_up_rack_role_and_inserts(monkeypatch, make_msg):
+    monkeypatch.setattr(ing, "is_registered", lambda mac: True)
+    monkeypatch.setattr(ing, "rack_filter", lambda mac: "rpg93")
+    monkeypatch.setattr(ing, "role_filter", lambda mac: "Standby")
+    he = MagicMock()
+    monkeypatch.setattr(ing, "handle_event", he)
+
+    msg = make_msg(
+        "repacss/devices/MAC/event",
+        {"message_type": "event", "event_type": "primary_down", "details": "took over"},
+    )
+    ing.on_message(None, None, msg)
+
+    he.assert_called_once()
+    args = he.call_args.args   # (conn, ts, mac, event_type, details, rack_id, role)
+    assert args[2] == "MAC"
+    assert args[3] == "primary_down"
+    assert args[4] == "took over"
+    assert args[5] == "rpg93"
+    assert args[6] == "Standby"
+
+
+def test_on_message_event_without_type_skips(monkeypatch, make_msg):
+    monkeypatch.setattr(ing, "is_registered", lambda mac: True)
+    he = MagicMock()
+    monkeypatch.setattr(ing, "handle_event", he)
+
+    msg = make_msg("repacss/devices/MAC/event", {"message_type": "event"})
+    ing.on_message(None, None, msg)
+
+    he.assert_not_called()
 
 
 # --- on_message ---------------------------------------------------------------

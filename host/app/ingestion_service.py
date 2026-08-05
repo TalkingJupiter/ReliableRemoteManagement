@@ -53,7 +53,15 @@ def on_message(client: mqtt.Client, userdata, msg):
     elif message_type == "status":
         handle_status(mac, payload)
     elif message_type == "event":
-        handle_event(mac, payload)
+        event_type = payload.get("event_type")
+        if not event_type:
+            print(f"[WARN] Event from {mac} has no event_type, skipping: {payload_txt}")
+        else:
+            details = payload.get("details")
+            rack_id = rack_filter(mac)
+            role = role_filter(mac)
+            ts = datetime.datetime.now(datetime.timezone.utc)
+            handle_event(conn, ts, mac, event_type, details, rack_id, role)
     elif message_type == "ack":
         handle_ack(mac, payload)
     else:
@@ -83,18 +91,34 @@ def rack_filter(mac):
                 print(f"[WARN] No rack_id found for device {mac}")
                 return None
 
-def handle_telemetry(conn, ts, mac, rack_id, bus, sensor_index, temp_c):
-    print(f"[INFO] Telemetry received from {mac}")
-
+def role_filter(mac):
+    print(f"[INFO] Filtering role for device {mac}")
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute(
-                """
-                INSERT INTO repacss_environment.telemetry (ts_host, mac, rack_id, bus, sensor_index, temperature_celsius)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (ts, mac, rack_id, bus, sensor_index, temp_c)
+                "SELECT role FROM repacss_environment.device_map WHERE mac = %s",(mac,)
             )
+            result = cur.fetchone()
+            if result:
+                return result[0]
+            else:
+                print(f"[WARN] No role found for device {mac}")
+                return None
+
+def handle_telemetry(conn, ts, mac, rack_id, bus, sensor_index, temp_c):
+    print(f"[INFO] Telemetry received from {mac}")
+    try:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO repacss_environment.telemetry (ts_host, mac, rack_id, bus, sensor_index, temperature_celsius)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (ts, mac, rack_id, bus, sensor_index, temp_c)
+                )
+    except Exception as error:
+        print(f"[ERROR] Failed to insert telemetry for {mac}: {error}")
 
 def handle_status(mac, payload):
     print(f"[INFO] Status from {mac}: {payload}")
@@ -103,10 +127,19 @@ def handle_status(mac, payload):
     raise NotImplementedError("Status handling is not implemented yet.")
     
 
-def handle_event(mac, payload):
-    print(f"[INFO] Event from {mac}: {payload}")
-    #WARNING: There is no event handling in the current firmware version 0.0.1. This is a placeholder for future event handling logic.
-    raise NotImplementedError("Event handling is not implemented yet.")
+def handle_event(conn, ts, mac, event_type, details, rack_id, role):
+    print(f"[INFO] Event received from {mac}")
+    try:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO repacss_environment.events (ts_host, mac, event_type, details, rack_id, role)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (ts, mac, event_type, details, rack_id, role)
+                )
+    except Exception as error:
+        print(f"[ERROR] Failed to insert event for {mac}: {error}")
 
 def handle_ack(mac, payload):
     print(f"[INFO] Acknowledgement from {mac}: {payload}")
