@@ -317,8 +317,8 @@ void loop() {
     const bool healthy = peerAlive;
 
     if (lastHealthy && !healthy) {
-      Serial.printf("[ALERT: STANDBY] Lost heartbeat from Primary (timeout=%d ms). peer=%c age_ms=%lu\n",
-                    (int)HB_TIMEOUT_MS, hb.peerId(), (unsigned long)ageMs);
+      Serial.printf("[ALERT: STANDBY] Lost heartbeat from Primary (timeout=%d ms). age_ms=%lu\n",
+                    (int)HB_TIMEOUT_MS, (unsigned long)ageMs);
       
         if (net.isUp()){
           const bool sent = net.sendEvent("{\"message_type\":\"event\",\"event_type\":\"primary_down\",\"details\":\"Standby took over after Primary heartbeat timeout\"}");
