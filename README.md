@@ -19,11 +19,11 @@ database, and can update firmware over the air.
 
 ```
   ESP32 Primary ─┐                      Radxa host                 DB host
-                 │  W5500 Ethernet   ┌──────────────────┐      ┌──────────────┐
-                 ├── MQTT (1883) ───►│ Mosquitto broker │      │ TimescaleDB  │
+         |       │  W5500 Ethernet   ┌──────────────────┐      ┌──────────────┐
+Heartbeat|       ├── MQTT (1883) ───►│ Mosquitto broker │      │ TimescaleDB  │
   ESP32 Standby ─┘   HTTP (8080)     │ provisioning svc │─────►│ (PostgreSQL  │
-        │  UART heartbeat            │ ingestion svc    │      │  17 + TS ext)│
-        └───────────────────────────│ fw-server (nginx)│      └──────────────┘
+        │                            │ ingestion svc    │      │  17 + TS ext)│
+        └──────────────-─────────────│ fw-server (nginx)│      └──────────────┘
                                      └──────────────────┘
 ```
 
@@ -168,7 +168,7 @@ docker exec -it mosquitto mosquitto_sub -h localhost -t "repacss/#" -v
 | UDP JSON | MQTT (PubSubClient / Mosquitto) |
 | Controller A / B | Primary / Standby, host-assigned role |
 | Per-controller firmware | one unified image |
-| SPDT switches, relays, sensor-bus switching | removed (#26); two fixed buses (intake/exhaust) |
-| Wi-Fi failover | none; wired Ethernet only |
+| SPDT switches, relays, sensor-bus switching | removed (#26); two fixed buses (intake/exhaust) per esp32|
+| Wi-Fi failover | none; wired Ethernet only (expecting wifi v2.0.0)|
 | Device-chosen identity | host-assigned via `device_map` |
 | Bus names `cool` | `inlet` / `exhaust` |

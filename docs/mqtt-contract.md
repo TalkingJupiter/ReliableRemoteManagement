@@ -206,7 +206,7 @@ device. A MAC not in `device_map` is unknown: provisioning answers
 
 ## 8. Ownership summary
 
-> TODO(you): one short table/paragraph. The principle we settled on:
+> TODO: one short table/paragraph. The principle the team settled on:
 >   - **Host owns identity** — the MAC → rack/role mapping.
 >   - **Firmware owns the topic convention** — builds topics from identity.
 > Each config field has exactly one job (mac=addressing, configured/enabled=gates,
@@ -217,7 +217,7 @@ device. A MAC not in `device_map` is unknown: provisioning answers
 
 ## 9. Versioning & change policy
 
-> TODO(you): how schema changes are made. Since firmware + host live in one repo,
+> TODO: how schema changes are made. Since firmware + host live in one repo,
 > a contract change should be a single commit touching both sides + this doc.
 > Note whether you'll add a `config_version` / `schema_version` field later
 > (relates to #13 config_ack).
