@@ -46,25 +46,20 @@ def upsert_device_state(mac: str, fw: str) -> None:
         print(f"[ERROR] Failed to upsert device state for {mac}: {error}")
 
 
-def is_enabled(mac: str, role: str) -> bool:
-    # Both Primary and Standby are enabled -- role + heartbeat decides who
-    # actually transmits. enabled:false is the remote kill-switch (OTA /
-    # maintenance), not the standby-quiet mechanism.
-    return role in ("Primary", "Standby")
-
-
-def build_config(mac: str, device: dict) -> dict:
+def build_config(device: dict) -> dict:
 # FUTURE: When a general system is working with DB and a dashboard implement a modifiable telemetry collect timing
 
+    mac 
     rack_id = device["rack_id"]
     role = device["role"]
+    enabled = device["enabled"]
 
     return{
         "message_type": "config",
-        "mac": mac,
+        "mac": device["rack_id"],
         "configured": True,
-        "enabled": is_enabled(mac, role),
-        "rack_id": rack_id,
+        "enabled": device["enabled"],
+        "rack_id": device["rack_id"],
         "role": role
     }
 
