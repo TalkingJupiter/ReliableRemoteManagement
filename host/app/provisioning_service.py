@@ -48,19 +48,13 @@ def upsert_device_state(mac: str, fw: str) -> None:
 
 def build_config(device: dict) -> dict:
 # FUTURE: When a general system is working with DB and a dashboard implement a modifiable telemetry collect timing
-
-    mac 
-    rack_id = device["rack_id"]
-    role = device["role"]
-    enabled = device["enabled"]
-
     return{
         "message_type": "config",
         "mac": device["rack_id"],
         "configured": True,
         "enabled": device["enabled"],
         "rack_id": device["rack_id"],
-        "role": role
+        "role": device["role"]
     }
 
 def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
