@@ -243,8 +243,18 @@ bool TelemetrySender::begin() {
 }
 
 void TelemetrySender::loop() {
+  if (!isUp()){
+    Serial.println("[LINK] Ethernet Link Status is Down!");
+  }
   if (isUp() && mqttClient.connected()) {
     mqttClient.loop();
+    Ethernet.maintain();
+  } else if(isUp() && !mqttClient.connected()){
+    static uint32_t lastTry = 0;
+    if(millis() - lastTry > 5000) {
+      lastTry = millis();
+      connectMqtt();
+    }
   }
 }
 
