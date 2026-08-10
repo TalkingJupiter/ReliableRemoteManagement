@@ -118,7 +118,7 @@ void onMqttMessage(char* topic, byte* payload, unsigned int lenght){
 
   RuntimeConfig cfg;
   String err;
-  if(!parseRuntimeConfigJson(String(json), cfg, err)){
+  if(!parseRuntimeConfigJson(String(json), cfg, err, TelemetrySender::deviceMacString())){
     Serial.printf("[CONFIG] Rejected: %s\n", err.c_str());
 
     // Report the rejection so the host does not see a silent, unconfigured
