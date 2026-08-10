@@ -44,8 +44,8 @@ const char* RuntimeConfig::roleString() const{
 
 bool RuntimeConfig::isValid() const{
     if(!configured) return false;
-    if(!enabled) return false;
-    if(mac.length() == 0) return false;
+    if((enabled != true) || (configured != false)) return false;
+    if(mac.length() != 12) return false;
     if(rackID.length() == 0) return false;
     if(role == ControllerRole::Unknown) return false;
     
