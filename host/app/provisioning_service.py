@@ -3,48 +3,10 @@ import paho.mqtt.client as mqtt
 from paho.mqtt.enums import CallbackAPIVersion
 from app.config import settings
 from app.db import connect as db_connect
-from app import device_registry
+from app import unknown_devices, current_state, device_registry
 
 conn = db_connect()
-
-def get_device_state() -> dict:
-    """Fetch the device state from the database and return a mapping of mac addresses to their current state."""
-    try:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                # Same normalization as get_device_map: keys must match the
-                # compact uppercase mac the devices report.
-                cur.execute(
-                    "SELECT upper(replace(mac::text, ':', '')), running_firmware_version "
-                    "FROM repacss_environment.current_status "
-                    "WHERE last_seen > now() - interval '1 minutes'"
-                )
-                rows = cur.fetchall()
-                return {row[0]: {"firmware_version": row[1]} for row in rows}
-    except Exception as error:
-        print(f"[ERROR] Failed to fetch device state from database: {error}")
-        return {}
-
-def upsert_device_state(mac: str, fw: str) -> None:
-    """Persist the device's reported firmware version and liveness into current_status."""
-    try:
-        with conn.transaction():
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO repacss_environment.current_status
-                        (mac, alive, last_seen, running_firmware_version)
-                    VALUES (%s, true, now(), %s)
-                    ON CONFLICT (mac) DO UPDATE
-                    SET alive = EXCLUDED.alive,
-                        last_seen = EXCLUDED.last_seen,
-                        running_firmware_version = EXCLUDED.running_firmware_version
-                    """,
-                    (mac, fw),
-                )
-    except Exception as error:
-        print(f"[ERROR] Failed to upsert device state for {mac}: {error}")
-
+MAX_HELLO_BYTES= 2048
 
 def build_config(mac, device: dict) -> dict:
 # FUTURE: When a general system is working with DB and a dashboard implement a modifiable telemetry collect timing
@@ -63,6 +25,10 @@ def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
     client.subscribe("repacss/devices/+/hello", qos=1)
 
 def on_message(client: mqtt.Client, userdata, msg):
+    if len(msg.payload) > MAX_HELLO_BYTES:
+        print(f"[WARN] Overloaded payload on {msg.topic}: {len(msg.payload)}")
+        return
+      
     topic = msg.topic
     payload_txt = msg.payload.decode("utf-8")
 
@@ -79,24 +45,14 @@ def on_message(client: mqtt.Client, userdata, msg):
 
     fw = hello.get("firmware_version", "unknown")
     print(f"[INFO] Device {mac} running firmware version: {fw}")
-    upsert_device_state(mac, fw)
+    current_state.upsert(conn, mac, fw)
 
     device = device_registry.lookup(conn, mac)
     config_topic = f"repacss/devices/{mac}/config"
 
     if device is None:
         print(f"[WARN] Unknown device: {mac}")
-
-        unknown_status={
-            "message_type": "config",
-            "mac": mac,
-            "configured": False,
-            "reason": "unknown mac"
-        }
-
-        
-        client.publish(config_topic, json.dumps(unknown_status), qos=1, retain=False)
-
+        unknown_devices.record(conn, mac, payload_txt)
         return
 
     config = build_config(mac, device)
