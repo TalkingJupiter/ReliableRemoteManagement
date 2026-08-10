@@ -46,11 +46,11 @@ def upsert_device_state(mac: str, fw: str) -> None:
         print(f"[ERROR] Failed to upsert device state for {mac}: {error}")
 
 
-def build_config(device: dict) -> dict:
+def build_config(mac, device: dict) -> dict:
 # FUTURE: When a general system is working with DB and a dashboard implement a modifiable telemetry collect timing
     return{
         "message_type": "config",
-        "mac": device["rack_id"],
+        "mac": mac,
         "configured": True,
         "enabled": device["enabled"],
         "rack_id": device["rack_id"],
