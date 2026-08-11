@@ -9,7 +9,7 @@ def record(conn, mac: str, payload_txt) -> None:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO repacss_enviroment.unknown_devices
+                    INSERT INTO repacss_environment.unknown_devices
                         (mac, first_seen, last_seen, hit_count, last_payload)
                     VALUES (%s, now(), now(), 1, %s)
                     ON CONFLICT (mac) DO UPDATE 
