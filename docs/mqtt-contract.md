@@ -78,8 +78,8 @@ Evaluated on the device; a rejected config is logged and NOT applied.
 - `rack_id` missing or empty → REJECT
 - `role` not in {`Primary`, `Standby`} → REJECT
 - `enabled` — **not** a reject condition. Must be a boolean; `false` means the
-  config is applied but the device stays silent (remote disable). See §10 —
-  current firmware still rejects `enabled: false` and must be changed to match.
+  config is applied but the device stays silent (remote disable). Implemented
+  in #19; before that the firmware rejected it and kept helloing.
 
 **Example — valid config:**
 This doubles as the string you'll `mosquitto_pub` when testing, and the fixture
@@ -109,8 +109,9 @@ Topic: `repacss/devices/<mac>/hello`
 |---|---|---|
 | `message_type` | string | `"hello"` |
 | `mac` | string | announcing device's MAC (same format as §4) |
+| `firmware_version` | string | running image version, from the git tag (e.g. `v0.0.2-19-gef833c6`) |
 
-- **Cadence:** every `HELLO_INTERVAL_MS` (currently 60 s) while unconfigured; stops once configured.
+- **Cadence:** every `HELLO_INTERVAL_MS` (currently 10 s) while unconfigured; stops once configured.
 - **Retained:** no.
 
 **Example:**
@@ -118,7 +119,8 @@ Topic: `repacss/devices/<mac>/hello`
 ```json
 {
   "message_type": "hello",
-  "mac": "AABBCCDDEEFF"
+  "mac": "AABBCCDDEEFF",
+  "firmware_version": "v0.0.2-19-gef833c6"
 }
 ```
 
@@ -198,9 +200,10 @@ The host is the source of truth for identity. `device_map` (Postgres, table
 services resolve identity from the MAC in the topic/payload via a shared,
 cached registry (`app/device_registry.py`, TTL cache with bounded
 refresh-on-miss). The `config` message is just that registry projected onto one
-device. A MAC not in `device_map` is unknown: provisioning answers
-`configured:false`, ingestion drops the data (future: record in
-`unknown_devices`).
+device. A MAC not in `device_map` is unknown: provisioning records it in
+`unknown_devices` and deliberately sends **no reply**, so the device stays
+unconfigured and keeps helloing. Ingestion drops unknown data (recording it
+there is still open).
 
 ---
 
@@ -229,7 +232,7 @@ device. A MAC not in `device_map` is unknown: provisioning answers
 - [x] `event` topic implemented — failover (`primary_down`/`primary_up`) and `config_rejected`
 - [ ] `config_ack` on `repacss/devices/<mac>/ack` — see #13
 - [ ] align `host/docs/example.md` + firmware to this doc — see #11
-- [ ] firmware: implement `cfg.mac == gMacSafe` self-check (not done yet — §4) — see #18
-- [ ] firmware: accept `enabled: false` instead of rejecting it, so remote disable works — see #19
+- [x] firmware: config `mac` is checked against the device's own MAC (§4) — #18
+- [x] firmware: `enabled: false` is accepted and applied, so remote disable works — #19
 - [ ] OTA command/status topics (`ota`, `ota/status`) — Phase 3, see #37
 - [ ] firmware: drop `topics{}` parsing, build the telemetry topic locally from `rack_id`
