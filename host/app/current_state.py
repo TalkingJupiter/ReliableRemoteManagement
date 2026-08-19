@@ -27,7 +27,7 @@ def get_recent(conn) -> dict:
                 cur.execute(
                     """
                     SELECT upper(replace(mac::text, ':', '')), running_firmware_version
-                    FROM repacss_enviroment.current_status
+                    FROM repacss_environment.current_status
                     WHERE last_seen > now() - interval '1 minutes'
                     """
                 )

@@ -85,5 +85,11 @@ CREATE TABLE IF NOT EXISTS repacss_environment.unknown_devices (
     mac macaddr PRIMARY KEY,
     first_seen timestamptz NOT NULL,
     last_seen timestamptz NOT NULL,
-    message_count_24h int NOT NULL
+    -- Running total since first_seen, not a rolling window: nothing trims it.
+    -- The 24 hour summary the README describes is a query over this plus
+    -- last_seen, not a maintained counter.
+    hit_count int NOT NULL,
+    -- Last payload seen, truncated by the writer. Helps identify what a stray
+    -- device actually is before deciding whether to register or block it.
+    last_payload text
 );
