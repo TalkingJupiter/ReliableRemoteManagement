@@ -3,7 +3,7 @@ services:
     image: timescale/timescaledb:2.28.3-pg17
     container_name: repacss_env_db
     environment:
-      POSTGRES_PASSWORD: repacss2026
+      POSTGRES_PASSWORD: [placeholder]
       POSTGRES_USER: repacss
       POSTGRES_DB: repacss
     ports:
